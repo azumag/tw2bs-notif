@@ -4,7 +4,12 @@ export interface TwitchSecrets {
   TWITCH_BROADCASTER_ID: string;
 }
 
-export type AppEnv = Env & TwitchSecrets;
+export interface BlueskySecrets {
+  BSKY_HANDLE: string;
+  BSKY_APP_PASSWORD: string;
+}
+
+export type AppEnv = Env & TwitchSecrets & BlueskySecrets;
 
 export const STREAM_ONLINE = "stream.online";
 export const STREAM_OFFLINE = "stream.offline";
