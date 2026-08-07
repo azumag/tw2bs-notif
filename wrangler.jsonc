@@ -2,6 +2,9 @@
   "name": "tw2bs-notif",
   "compatibility_date": "2026-08-01",
   "main": "src/index.ts",
+  "triggers": {
+    "crons": ["0,30 * * * *"]
+  },
   "kv_namespaces": [
     {
       "binding": "STATE",

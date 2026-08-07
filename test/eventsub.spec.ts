@@ -182,6 +182,7 @@ describe("handleEventSub", () => {
       id: undefined,
       type: "stream.offline",
       broadcasterUserId: "12345",
+      broadcasterUserLogin: undefined,
       startedAt: undefined,
     });
   });

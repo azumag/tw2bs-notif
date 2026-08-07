@@ -238,6 +238,49 @@ describe("setLiveStatus", () => {
     expect(fetchMock).toHaveBeenCalledTimes(11); // 1 session + 5 getRecord + 5 putRecord
   });
 
+  it("retries once with a fresh session on 401", async () => {
+    let putCalls = 0;
+    const fetchMock = mockFetch({
+      "com.atproto.server.createSession": async () => jsonResponse(sessionResponse),
+      "com.atproto.repo.getRecord": async () =>
+        jsonResponse({ uri: "at://.../self", cid: statusRecordCid, value: {} }),
+      "com.atproto.repo.putRecord": async () => {
+        putCalls++;
+        if (putCalls === 1) {
+          return jsonResponse({ error: "ExpiredToken", message: "jwt expired" }, 401);
+        }
+        return jsonResponse({ uri: "at://.../self", cid: "new-cid" });
+      },
+    });
+
+    await expect(
+      setLiveStatus(makeEnv(), { uri: "https://www.twitch.tv/example" }),
+    ).resolves.toBeUndefined();
+    expect(putCalls).toBe(2);
+    const sessionCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("createSession"),
+    );
+    expect(sessionCalls).toHaveLength(2);
+  });
+
+  it("does not recurse when the retry also gets a 401", async () => {
+    const fetchMock = mockFetch({
+      "com.atproto.server.createSession": async () => jsonResponse(sessionResponse),
+      "com.atproto.repo.getRecord": async () =>
+        jsonResponse({ uri: "at://.../self", cid: statusRecordCid, value: {} }),
+      "com.atproto.repo.putRecord": async () =>
+        jsonResponse({ error: "ExpiredToken", message: "jwt expired" }, 401),
+    });
+
+    await expect(
+      setLiveStatus(makeEnv(), { uri: "https://www.twitch.tv/example" }),
+    ).rejects.toMatchObject({ status: 401, error: "ExpiredToken" });
+    const sessionCalls = fetchMock.mock.calls.filter(([url]) =>
+      String(url).includes("createSession"),
+    );
+    expect(sessionCalls).toHaveLength(2);
+  });
+
   it("throws non-InvalidSwap errors immediately", async () => {
     mockFetch({
       "com.atproto.server.createSession": async () => jsonResponse(sessionResponse),

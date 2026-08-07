@@ -111,6 +111,42 @@ export interface CreateSubscriptionInput {
   secret: string;
 }
 
+export interface StreamState {
+  id: string;
+  startedAt: string;
+  title: string;
+  userLogin: string;
+}
+
+export async function getStreamState(
+  env: AppEnv,
+  broadcasterId: string,
+): Promise<StreamState | null> {
+  const token = await getAppAccessToken(env);
+  const res = await twitchFetch(
+    `${API_URL}/streams?user_id=${encodeURIComponent(broadcasterId)}`,
+    { headers: authHeaders(env, token) },
+  );
+  const data = (await res.json()) as {
+    data: Array<{
+      id: string;
+      started_at: string;
+      title: string;
+      user_login: string;
+    }>;
+  };
+  const stream = data.data[0];
+  if (!stream) {
+    return null;
+  }
+  return {
+    id: stream.id,
+    startedAt: stream.started_at,
+    title: stream.title,
+    userLogin: stream.user_login,
+  };
+}
+
 export async function createSubscription(
   env: AppEnv,
   input: CreateSubscriptionInput,

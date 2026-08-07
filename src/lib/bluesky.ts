@@ -140,57 +140,82 @@ export async function setLiveStatus(
   env: AppEnv,
   input: { uri: string; title?: string; description?: string },
 ): Promise<void> {
-  const session = await getSession(env);
-  const record: LiveStatusRecord = {
-    $type: "app.bsky.actor.status",
-    status: "app.bsky.actor.status#live",
-    createdAt: new Date().toISOString(),
-    durationMinutes: DURATION_MINUTES,
-    embed: {
-      $type: "app.bsky.embed.external",
-      external: {
-        $type: "app.bsky.embed.external#external",
-        uri: input.uri,
-        title: input.title,
-        description: input.description,
+  await withSessionRefresh(env, async (session) => {
+    const record: LiveStatusRecord = {
+      $type: "app.bsky.actor.status",
+      status: "app.bsky.actor.status#live",
+      createdAt: new Date().toISOString(),
+      durationMinutes: DURATION_MINUTES,
+      embed: {
+        $type: "app.bsky.embed.external",
+        external: {
+          $type: "app.bsky.embed.external#external",
+          uri: input.uri,
+          title: input.title,
+          description: input.description,
+        },
       },
-    },
-  };
+    };
 
-  for (let attempt = 0; attempt < MAX_SWAP_RETRIES; attempt++) {
-    const existingCid = await getStatusRecordCid(env, session);
-    try {
-      await putStatusRecord(env, session, record, existingCid);
-      return;
-    } catch (err) {
-      const isInvalidSwap =
-        err instanceof BlueskyError && err.error === "InvalidSwap";
-      if (!isInvalidSwap || attempt === MAX_SWAP_RETRIES - 1) {
-        throw err;
+    for (let attempt = 0; attempt < MAX_SWAP_RETRIES; attempt++) {
+      const existingCid = await getStatusRecordCid(env, session);
+      try {
+        await putStatusRecord(env, session, record, existingCid);
+        return;
+      } catch (err) {
+        const isInvalidSwap =
+          err instanceof BlueskyError && err.error === "InvalidSwap";
+        if (!isInvalidSwap || attempt === MAX_SWAP_RETRIES - 1) {
+          throw err;
+        }
       }
     }
-  }
+  });
+}
+
+export async function statusRecordExists(env: AppEnv): Promise<boolean> {
+  const session = await getSession(env);
+  return (await getStatusRecordCid(env, session)) !== null;
 }
 
 export async function clearLiveStatus(env: AppEnv): Promise<void> {
+  await withSessionRefresh(env, async (session) => {
+    try {
+      await bskyFetch(`${BSKY_BASE_URL}/xrpc/com.atproto.repo.deleteRecord`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${session.accessJwt}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          repo: session.did,
+          collection: STATUS_COLLECTION,
+          rkey: STATUS_RKEY,
+        }),
+      });
+    } catch (err) {
+      if (err instanceof BlueskyError && err.error === "RecordNotFound") {
+        return;
+      }
+      throw err;
+    }
+  });
+}
+
+async function withSessionRefresh<T>(
+  env: AppEnv,
+  fn: (session: SessionCache) => Promise<T>,
+): Promise<T> {
   const session = await getSession(env);
   try {
-    await bskyFetch(`${BSKY_BASE_URL}/xrpc/com.atproto.repo.deleteRecord`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${session.accessJwt}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        repo: session.did,
-        collection: STATUS_COLLECTION,
-        rkey: STATUS_RKEY,
-      }),
-    });
+    return await fn(session);
   } catch (err) {
-    if (err instanceof BlueskyError && err.error === "RecordNotFound") {
-      return;
+    if (!(err instanceof BlueskyError) || err.status !== 401) {
+      throw err;
     }
-    throw err;
+    // JWT失効時はセッションを破棄して再作成し、1回だけリトライ
+    await env.STATE.delete(SESSION_CACHE_KEY);
+    const freshSession = await getSession(env);
+    return fn(freshSession);
   }
 }

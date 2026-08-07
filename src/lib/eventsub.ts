@@ -105,6 +105,10 @@ export async function handleEventSub(
       typeof event.broadcaster_user_id === "string"
         ? event.broadcaster_user_id
         : "",
+    broadcasterUserLogin:
+      typeof event.broadcaster_user_login === "string"
+        ? event.broadcaster_user_login
+        : undefined,
     startedAt:
       typeof event.started_at === "string" ? event.started_at : undefined,
   };

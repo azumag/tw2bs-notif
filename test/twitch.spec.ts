@@ -6,6 +6,7 @@ import {
   createSubscription,
   deleteSubscription,
   getAppAccessToken,
+  getStreamState,
   listSubscriptions,
 } from "../src/lib/twitch";
 
@@ -234,6 +235,44 @@ describe("listSubscriptions", () => {
     expect(subs).toHaveLength(1);
     expect(subs[0].id).toBe("sub-1");
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("getStreamState", () => {
+  it("returns the stream state when the broadcaster is live", async () => {
+    mockFetch({
+      "oauth2/token": async () => jsonResponse(tokenResponse),
+      "streams?user_id=12345": async (_url, init) => {
+        expect(init?.headers).toMatchObject({ Authorization: "Bearer token-1" });
+        return jsonResponse({
+          data: [
+            {
+              id: "stream-1",
+              started_at: "2026-08-07T00:00:00Z",
+              title: "テスト配信",
+              user_login: "cool_user",
+            },
+          ],
+        });
+      },
+    });
+
+    const state = await getStreamState(makeEnv(), "12345");
+    expect(state).toEqual({
+      id: "stream-1",
+      startedAt: "2026-08-07T00:00:00Z",
+      title: "テスト配信",
+      userLogin: "cool_user",
+    });
+  });
+
+  it("returns null when the broadcaster is offline", async () => {
+    mockFetch({
+      "oauth2/token": async () => jsonResponse(tokenResponse),
+      "streams?user_id=12345": async () => jsonResponse({ data: [] }),
+    });
+
+    await expect(getStreamState(makeEnv(), "12345")).resolves.toBeNull();
   });
 });
 

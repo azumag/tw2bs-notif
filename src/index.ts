@@ -1,4 +1,5 @@
 import { EVENTSUB_PATH, handleEventSub } from "./lib/eventsub";
+import { refreshStreamStatus } from "./lib/stream";
 import type { AppEnv } from "./types";
 
 export default {
@@ -11,5 +12,8 @@ export default {
       return new Response("tw2bs-notif is running", { status: 200 });
     }
     return new Response("Not Found", { status: 404 });
+  },
+  async scheduled(_controller: ScheduledController, env: AppEnv, ctx: ExecutionContext) {
+    ctx.waitUntil(refreshStreamStatus(env));
   },
 } satisfies ExportedHandler<AppEnv>;
