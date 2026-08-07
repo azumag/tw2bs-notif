@@ -2,6 +2,9 @@ import type { AppEnv } from "../types";
 import { STREAM_OFFLINE, STREAM_ONLINE } from "../types";
 import { clearLiveStatus, setLiveStatus, statusRecordExists } from "./bluesky";
 import { getStreamState } from "./twitch";
+import { logError, logInfo } from "./logger";
+
+const C = "stream";
 
 export interface StreamEvent {
   id?: string;
@@ -35,10 +38,9 @@ export async function processStreamEvent(
       !event.broadcasterUserId ||
       event.broadcasterUserId !== env.TWITCH_BROADCASTER_ID
     ) {
-      console.log(
-        "processStreamEvent: ignored other/missing broadcaster",
-        event.broadcasterUserId,
-      );
+      logInfo(C, "ignored other/missing broadcaster", {
+        broadcaster: event.broadcasterUserId ?? "(none)",
+      });
       return;
     }
     const key = stateKey(env.TWITCH_BROADCASTER_ID);
@@ -47,13 +49,15 @@ export async function processStreamEvent(
     if (event.type === STREAM_ONLINE) {
       // 重複排除: 同一配信(stream_id一致)の再送は無視
       if (state?.is_live && state.stream_id === event.id) {
-        console.log("processStreamEvent: duplicate online event, skipped");
+        logInfo(C, "duplicate online event, skipped", {
+          streamId: event.id,
+        });
         return;
       }
       // 最新の配信情報(タイトル等)を取得。失敗時はログイン名のみで設定
       const stream = await getStreamState(env, env.TWITCH_BROADCASTER_ID).catch(
         (err) => {
-          console.log("processStreamEvent: stream poll failed", err);
+          logError(C, "stream poll failed", err);
           return null;
         },
       );
@@ -68,11 +72,14 @@ export async function processStreamEvent(
           updated_at: new Date().toISOString(),
         } satisfies LiveState),
       );
-      console.log("processStreamEvent: set live");
+      logInfo(C, "set live", {
+        streamId: event.id ?? stream?.id,
+        uri: twitchUrl(login),
+      });
     } else {
       // stream.offline (id は存在しない)
       if (!state?.is_live) {
-        console.log("processStreamEvent: offline without live state, skipped");
+        logInfo(C, "offline without live state, skipped");
         return;
       }
       // 誤消灯防止: 遅延到達した前配信の offline が、新しい配信中に来るケースを防ぐ。
@@ -81,23 +88,31 @@ export async function processStreamEvent(
         env,
         env.TWITCH_BROADCASTER_ID,
       ).catch((err) => {
-        console.log("processStreamEvent: offline verify poll failed", err);
+        logError(C, "offline verify poll failed", err);
         return null;
       });
       if (stillLive) {
-        console.log("processStreamEvent: stream is still live, offline skipped");
+        logInfo(C, "stream is still live, offline skipped", {
+          streamId: stillLive.id,
+        });
         return;
       }
       await clearLiveStatus(env);
       await env.STATE.put(
         key,
-        JSON.stringify({ is_live: false, updated_at: new Date().toISOString() } satisfies LiveState),
+        JSON.stringify({
+          is_live: false,
+          updated_at: new Date().toISOString(),
+        } satisfies LiveState),
       );
-      console.log("processStreamEvent: cleared live status");
+      logInfo(C, "cleared live status");
     }
   } catch (err) {
     // 失敗してもハンドラの応答には影響させない(waitUntil内で実行される)
-    console.error("processStreamEvent: failed", err);
+    logError(C, "processStreamEvent failed", err, {
+      eventId: event.id,
+      type: event.type,
+    });
   }
 }
 
@@ -125,7 +140,7 @@ export async function refreshStreamStatus(env: AppEnv): Promise<void> {
           } satisfies LiveState),
         );
       }
-      console.log("refreshStreamStatus: refreshed live status");
+      logInfo(C, "refreshed live status", { streamId: stream.id });
     } else {
       // 配信していない: KV が live のまま、または Bluesky record が残っている場合は自己修復
       const recordExists = await statusRecordExists(env);
@@ -133,12 +148,18 @@ export async function refreshStreamStatus(env: AppEnv): Promise<void> {
         await clearLiveStatus(env);
         await env.STATE.put(
           key,
-          JSON.stringify({ is_live: false, updated_at: new Date().toISOString() } satisfies LiveState),
+          JSON.stringify({
+            is_live: false,
+            updated_at: new Date().toISOString(),
+          } satisfies LiveState),
         );
-        console.log("refreshStreamStatus: cleared stale live status");
+        logInfo(C, "cleared stale live status", {
+          stateWasLive: !!state?.is_live,
+          recordExisted: recordExists,
+        });
       }
     }
   } catch (err) {
-    console.error("refreshStreamStatus: failed", err);
+    logError(C, "refreshStreamStatus failed", err);
   }
 }

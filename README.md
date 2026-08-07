@@ -18,6 +18,18 @@ npm run typecheck  # tsc --noEmit
 npm test           # vitest(Workers ランタイム上で実行)
 ```
 
+### ローカル開発(.dev.vars)
+
+シークレットを `.dev.vars` に置くと `wrangler dev` が読み込む(commit 禁止。`.gitignore` 済み):
+
+```bash
+cp .dev.vars.example .dev.vars
+# .dev.vars に実値を記入してから:
+npm run dev
+```
+
+注意: EventSub Webhook は Twitch から public URL への送信のため、ローカルの `wrangler dev` 宛には届かない。Webhook ハンドラのローカル検証は `npm test` の統合テスト(API スタブ)を使う。実機での通し確認は「動作確認」の手順で行う。
+
 ### KV namespace のセットアップ(初回のみ)
 
 `wrangler.jsonc` の KV id はプレースホルダのまま。
@@ -67,6 +79,7 @@ TWITCH_CLIENT_ID=... TWITCH_CLIENT_SECRET=... TWITCH_BROADCASTER_ID=... \
 npm run setup
 ```
 
+- workers.dev サブドメインが無いアカウントでは、Cloudflare ダッシュボードでカスタムドメインを設定し、その URL(`https://<ドメイン>/twitch/eventsub`)を CALLBACK_URL に使う(Twitch は HTTPS のみ許可)
 - webhook secret は自動生成され KV(`twitch:webhook_secret`)に保存される。**2回目以降の実行では KV の既存 secret を再利用する**(再生成すると既存購読の署名検証が壊れるため)
 - 既に購読済みの場合は `[skip]` と表示され、重複登録されない。callback URL が変わっている場合は自動で作り直される
 - 購読一覧: `npm run setup -- list` / 削除: `npm run setup -- delete <id>`
@@ -75,8 +88,13 @@ npm run setup
 ### 5. 動作確認
 
 ```bash
-npx wrangler tail   # ログ確認(配信開始時に processStreamEvent: set live が表示される)
+npx wrangler tail   # ログ確認(配信開始時に [info][stream] set live が表示される)
 ```
+
+- **配信開始**: Twitch で配信を開始 → 1分以内に Bluesky プロフィール(azumag.bsky.social 等)に「配信中」バッジ + twitch.tv リンクカードが表示される
+- **配信終了**: バッジが消える
+- **ロング配信(4時間超)**: cron(30分毎)が record を再書き込みするためバッジが継続する
+- ログ判別: `[info]` / `[error]` プレフィックスで成功・失敗が判別できる
 
 ## 進捗
 
