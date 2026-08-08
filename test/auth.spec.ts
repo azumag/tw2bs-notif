@@ -56,7 +56,7 @@ const tokenResponse = {
   access_token: "user-access-token",
   refresh_token: "user-refresh-token",
   expires_in: 3600,
-  scope: "user:read:email",
+  scope: ["user:read:email"], // Twitch は配列で返す(実測)
   token_type: "bearer",
 };
 

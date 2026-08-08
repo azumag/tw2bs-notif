@@ -77,13 +77,16 @@ export async function exchangeCode(
     access_token: string;
     refresh_token: string;
     expires_in: number;
-    scope?: string;
+    // Twitch は配列で返す(互換のため文字列にも対応)
+    scope?: string | string[];
   };
   return {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
     expiresAt: Date.now() + data.expires_in * 1000,
-    scopes: (data.scope ?? "").split(" ").filter(Boolean),
+    scopes: Array.isArray(data.scope)
+      ? data.scope.filter((s): s is string => typeof s === "string")
+      : (data.scope ?? "").split(" ").filter(Boolean),
   };
 }
 
