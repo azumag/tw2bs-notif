@@ -138,7 +138,9 @@ describe("Twitch OAuth ログイン", () => {
     expect(url.searchParams.get("redirect_uri")).toBe(
       env.TWITCH_OAUTH_REDIRECT_URL,
     );
-    expect(url.searchParams.get("scope")).toBe("user:read:email");
+    expect(url.searchParams.get("scope")).toBe(
+      "user:read:email user:read:subscriptions",
+    );
     const state = url.searchParams.get("state");
     expect(state).toBeTruthy();
     await expect(env.STATE.get("oauth_state:" + state)).resolves.toBe("1");

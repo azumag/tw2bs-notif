@@ -1,4 +1,5 @@
 import type { AppEnv } from "../types";
+import { hasTwitchSub } from "./sub-check";
 
 /**
  * 特典(サポートコード)基盤。
@@ -179,12 +180,13 @@ export async function deactivateEntitlements(
 
 /**
  * 有効な特典を持っているか。
- * #14 で「または Twitch サブスク」を統合する。
+ * サポートコード(Fanbox)または Twitch サブスクで特典が有効。
  */
 export async function hasActiveEntitlement(
   env: AppEnv,
   userId: string,
 ): Promise<boolean> {
   const licenses = await listEntitlements(env, userId);
-  return licenses.length > 0;
+  if (licenses.length > 0) return true;
+  return hasTwitchSub(env, userId);
 }

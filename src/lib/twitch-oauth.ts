@@ -13,7 +13,10 @@ const TWITCH_API_URL = "https://api.twitch.tv/helix";
 const OAUTH_STATE_PREFIX = "oauth_state:";
 const OAUTH_STATE_TTL = 10 * 60; // 10分
 
-export const TWITCH_LOGIN_SCOPES = "user:read:email";
+// ログイン時に要求するスコープ。
+// user:read:email(本人確認) + user:read:subscriptions(サブスク判定)
+export const TWITCH_LOGIN_SCOPES =
+  "user:read:email user:read:subscriptions";
 
 export interface TwitchUserInfo {
   id: string;
@@ -144,20 +147,87 @@ export async function fetchOwnTwitchUser(
   env: AppEnv,
   twitchUserId: string,
 ): Promise<TwitchUserInfo> {
+  const accessToken = await getValidUserAccessToken(env, twitchUserId);
+  return fetchTwitchUser(env, accessToken);
+}
+
+/**
+ * 有効なユーザーアクセストークンを返す。
+ * 期限切れなら refresh token で再取得して保存し直す。
+ * refresh も失敗したら TwitchOAuthError(再ログインを促す)。
+ */
+export async function getValidUserAccessToken(
+  env: AppEnv,
+  twitchUserId: string,
+): Promise<string> {
   const row = await env.DB.prepare(
-    `SELECT twitch_access_token_enc AS accessTokenEnc, twitch_token_expires_at AS expiresAt
+    `SELECT twitch_access_token_enc AS accessTokenEnc,
+            twitch_refresh_token_enc AS refreshTokenEnc,
+            twitch_token_expires_at AS expiresAt
      FROM users WHERE twitch_user_id = ?`,
   )
     .bind(twitchUserId)
-    .first<{ accessTokenEnc: string; expiresAt: number }>();
-  if (!row?.accessTokenEnc) {
-    throw new TwitchOAuthError("user not found or not logged in");
+    .first<{
+      accessTokenEnc: string;
+      refreshTokenEnc: string;
+      expiresAt: number;
+    }>();
+  if (!row?.accessTokenEnc || !row.refreshTokenEnc) {
+    throw new TwitchOAuthError("ユーザー情報が見つかりません。再ログインしてください");
   }
-  if (row.expiresAt < Date.now()) {
-    throw new TwitchOAuthError("トークンが失効しています。再ログインしてください");
+
+  if (row.expiresAt > Date.now() + 60_000) {
+    return decryptSecret(env, row.accessTokenEnc);
   }
-  const accessToken = await decryptSecret(env, row.accessTokenEnc);
-  return fetchTwitchUser(env, accessToken);
+
+  // 期限切れ: refresh token で再取得
+  const refreshToken = await decryptSecret(env, row.refreshTokenEnc);
+  const params = new URLSearchParams({
+    client_id: env.TWITCH_CLIENT_ID,
+    client_secret: env.TWITCH_CLIENT_SECRET,
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+  });
+  const res = await fetch(TWITCH_TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: params.toString(),
+  });
+  if (!res.ok) {
+    throw new TwitchOAuthError(
+      "トークンが失効しています。再ログインしてください",
+    );
+  }
+  const data = (await res.json()) as {
+    access_token: string;
+    refresh_token: string;
+    expires_in: number;
+    scope?: string | string[];
+  };
+  const newAccessEnc = await encryptSecret(env, data.access_token);
+  const newRefreshEnc = await encryptSecret(env, data.refresh_token);
+  await env.DB.prepare(
+    `UPDATE users SET
+       twitch_access_token_enc = ?,
+       twitch_refresh_token_enc = ?,
+       twitch_token_expires_at = ?,
+       twitch_scopes = ?,
+       updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+     WHERE twitch_user_id = ?`,
+  )
+    .bind(
+      newAccessEnc,
+      newRefreshEnc,
+      Date.now() + data.expires_in * 1000,
+      JSON.stringify(
+        Array.isArray(data.scope)
+          ? data.scope
+          : (data.scope ?? "").split(" ").filter(Boolean),
+      ),
+      twitchUserId,
+    )
+    .run();
+  return data.access_token;
 }
 
 export async function upsertUserWithTokens(

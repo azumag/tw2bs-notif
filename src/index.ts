@@ -33,6 +33,11 @@ import {
   listEntitlements,
   SupportCodeError,
 } from "./lib/support";
+import {
+  hasTwitchSub,
+  refreshTwitchSubCheck,
+  setTwitchSubCheckDisabled,
+} from "./lib/sub-check";
 import { logError, logInfo } from "./lib/logger";
 
 const LOGIN_PATH = "/auth/twitch/login";
@@ -44,6 +49,9 @@ const CHANNELS_DISCONNECT_PATH = "/channels/disconnect";
 const SUPPORT_PATH = "/support";
 const SUPPORT_ACTIVATE_PATH = "/support/activate";
 const SUPPORT_DEACTIVATE_PATH = "/support/deactivate";
+const SUB_CHECK_PATH = "/support/check-subscription";
+const SUB_DISABLE_PATH = "/support/disable-subscription";
+const SUB_ENABLE_PATH = "/support/enable-subscription";
 const WEBHOOK_SECRET_KEY = "twitch:webhook_secret";
 
 function htmlPage(title: string, body: string): Response {
@@ -288,12 +296,47 @@ async function handleSupport(
          <small>(${escapeHtml(l.activatedAt)})</small></li>`,
     )
     .join("");
+
+  // Twitch サブスク状態(1時間キャッシュ)
+  const userRow = await env.DB.prepare(
+    `SELECT twitch_sub_check_disabled AS disabled, twitch_has_sub AS hasSub
+     FROM users WHERE twitch_user_id = ?`,
+  )
+    .bind(session.twitchUserId)
+    .first<{ disabled: number; hasSub: number | null }>();
+  const subDisabled = !!userRow?.disabled;
+
+  let subStatus: string;
+  let subActions: string;
+  if (subDisabled) {
+    subStatus = "無効中";
+    subActions = `<form method="post" action="${SUB_ENABLE_PATH}">
+       <input type="hidden" name="csrf" value="${session.csrf}">
+       <button type="submit">サブスク判定を再有効化</button>
+     </form>`;
+  } else {
+    subStatus = await hasTwitchSub(env, session.twitchUserId)
+      .then((hasSub) => (hasSub ? "サブスク中 ✓" : "サブスクなし"))
+      .catch(() => "確認できません");
+    subActions = `<form method="post" action="${SUB_CHECK_PATH}">
+       <input type="hidden" name="csrf" value="${session.csrf}">
+       <button type="submit">サブスク状態を再確認</button>
+     </form>
+     <form method="post" action="${SUB_DISABLE_PATH}">
+       <input type="hidden" name="csrf" value="${session.csrf}">
+       <button type="submit">サブスク判定を無効にする</button>
+     </form>`;
+  }
+
   return htmlPage(
     "orbsky - 特典",
-    `<h1>特典(サポートコード)</h1>
+    `<h1>特典(サポートコード / Twitchサブスク)</h1>
      <p><a href="/">← 戻る</a></p>
      <h2>現在の特典</h2>
      <ul>${rows || "<li>(なし)</li>"}</ul>
+     <h2>Twitchサブスク(azumagbanjo)</h2>
+     <p>状態: ${escapeHtml(subStatus)}</p>
+     ${subActions}
      <h2>サポートコードを入力</h2>
      <form method="post" action="${SUPPORT_ACTIVATE_PATH}">
        <input type="hidden" name="csrf" value="${session.csrf}">
@@ -302,7 +345,7 @@ async function handleSupport(
      </form>
      <form method="post" action="${SUPPORT_DEACTIVATE_PATH}">
        <input type="hidden" name="csrf" value="${session.csrf}">
-       <button type="submit">特典を解除</button>
+       <button type="submit">コード特典を解除</button>
      </form>`,
   );
 }
@@ -368,6 +411,62 @@ async function handleSupportDeactivate(
   return new Response(null, { status: 302, headers: { Location: SUPPORT_PATH } });
 }
 
+async function handleSubCheck(
+  request: Request,
+  env: AppEnv,
+): Promise<Response> {
+  const session = await getSession(env, request);
+  const form = await request.formData().catch(() => null);
+  const csrf = typeof form?.get("csrf") === "string" ? form.get("csrf") : null;
+  if (!session || csrf !== session.csrf) {
+    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+  }
+
+  const result = await refreshTwitchSubCheck(env, session.twitchUserId);
+  if (result === null) {
+    return htmlPage(
+      "特典",
+      `<p>確認に失敗しました。再ログインが必要な場合があります。</p>
+       <p><a href="${SUPPORT_PATH}">戻る</a></p>`,
+    );
+  }
+  return htmlPage(
+    "特典",
+    `<p>${result ? "サブスク中です ✓" : "サブスクは見つかりませんでした"}</p>
+     <p><a href="${SUPPORT_PATH}">戻る</a></p>`,
+  );
+}
+
+async function handleSubDisable(
+  request: Request,
+  env: AppEnv,
+): Promise<Response> {
+  const session = await getSession(env, request);
+  const form = await request.formData().catch(() => null);
+  const csrf = typeof form?.get("csrf") === "string" ? form.get("csrf") : null;
+  if (!session || csrf !== session.csrf) {
+    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+  }
+  await setTwitchSubCheckDisabled(env, session.twitchUserId, true);
+  logInfo("support", "sub check disabled", { userId: session.twitchUserId });
+  return new Response(null, { status: 302, headers: { Location: SUPPORT_PATH } });
+}
+
+async function handleSubEnable(
+  request: Request,
+  env: AppEnv,
+): Promise<Response> {
+  const session = await getSession(env, request);
+  const form = await request.formData().catch(() => null);
+  const csrf = typeof form?.get("csrf") === "string" ? form.get("csrf") : null;
+  if (!session || csrf !== session.csrf) {
+    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+  }
+  await setTwitchSubCheckDisabled(env, session.twitchUserId, false);
+  logInfo("support", "sub check enabled", { userId: session.twitchUserId });
+  return new Response(null, { status: 302, headers: { Location: SUPPORT_PATH } });
+}
+
 export default {
   async fetch(
     request: Request,
@@ -405,6 +504,15 @@ export default {
     }
     if (url.pathname === SUPPORT_DEACTIVATE_PATH && request.method === "POST") {
       return handleSupportDeactivate(request, env);
+    }
+    if (url.pathname === SUB_CHECK_PATH && request.method === "POST") {
+      return handleSubCheck(request, env);
+    }
+    if (url.pathname === SUB_DISABLE_PATH && request.method === "POST") {
+      return handleSubDisable(request, env);
+    }
+    if (url.pathname === SUB_ENABLE_PATH && request.method === "POST") {
+      return handleSubEnable(request, env);
     }
     if (url.pathname === "/" && request.method === "GET") {
       const session = await getSession(env, request);

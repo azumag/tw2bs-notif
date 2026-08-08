@@ -307,10 +307,69 @@ describe("チャンネル連携ページ", () => {
     expect(results[0].c).toBe(1);
   });
 
-  it("トークン期限切れ時はエラーメッセージを表示する", async () => {
+  it("トークン期限切れ時はリフレッシュしてから連携できる", async () => {
+    let refreshCalls = 0;
+    mockFetch({
+      "api.twitch.tv/helix/users": async (url, init) => {
+        // リフレッシュ後の新トークンで呼ばれる
+        expect(init?.headers).toMatchObject({
+          Authorization: "Bearer refreshed-token",
+        });
+        return jsonResponse(usersResponse);
+      },
+      "id.twitch.tv/oauth2/token": async (url, init) => {
+        const body = String(init?.body);
+        if (body.includes("grant_type=refresh_token")) {
+          refreshCalls++;
+          return jsonResponse({
+            access_token: "refreshed-token",
+            refresh_token: "new-refresh-token",
+            expires_in: 3600,
+            scope: ["user:read:email"],
+            token_type: "bearer",
+          });
+        }
+        throw new Error("unexpected grant_type");
+      },
+      "eventsub/subscriptions": async () => jsonResponse({ data: [] }),
+    });
     const env0 = makeEnv();
     const { cookie, csrf } = await loginAs(env0);
     // トークンを期限切れにする
+    await env0.DB.prepare(
+      "UPDATE users SET twitch_token_expires_at = ? WHERE twitch_user_id = ?",
+    )
+      .bind(Date.now() - 1000, "12345")
+      .run();
+
+    const res = await fetchAs(
+      env0,
+      new Request("https://example.com/channels/connect", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: new URLSearchParams({ csrf }),
+      }),
+    );
+    expect(res.status).toBe(302);
+    expect(refreshCalls).toBe(1);
+
+    // 新しいトークンが保存されている
+    const row = await env0.DB.prepare(
+      "SELECT twitch_refresh_token_enc AS r FROM users WHERE twitch_user_id = ?",
+    )
+      .bind("12345")
+      .first<{ r: string }>();
+    expect(row?.r).toBeTruthy();
+    expect(row!.r).not.toContain("new-refresh-token"); // 暗号化されている
+  });
+
+  it("リフレッシュも失敗したら再ログインを促す", async () => {
+    mockFetch({
+      "id.twitch.tv/oauth2/token": async () =>
+        jsonResponse({ error: "invalid_grant", message: "refresh token expired" }, 400),
+    });
+    const env0 = makeEnv();
+    const { cookie, csrf } = await loginAs(env0);
     await env0.DB.prepare(
       "UPDATE users SET twitch_token_expires_at = ? WHERE twitch_user_id = ?",
     )

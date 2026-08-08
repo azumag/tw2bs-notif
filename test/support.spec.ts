@@ -104,7 +104,29 @@ describe("support モジュール", () => {
     expect(row?.c).toBe(1);
   });
 
-  it("同一コードの再入力は ALREADY_ACTIVATED で二重付与しない", async () => {
+  it("コードは複数ユーザーで共有可能(ユーザーごとに1回)", async () => {
+    const env0 = makeEnv();
+    await insertCode(env0, "CODE-001", "support");
+
+    await activateCode(env0, "user-1", "CODE-001");
+    const license2 = await activateCode(env0, "user-2", "CODE-001");
+
+    expect(license2.planType).toBe("support");
+    const licenses1 = await listEntitlements(env0, "user-1");
+    const licenses2 = await listEntitlements(env0, "user-2");
+    expect(licenses1).toHaveLength(1);
+    expect(licenses2).toHaveLength(1);
+
+    // activation_count は利用ユーザー数分増える(2)
+    const row = await env0.DB.prepare(
+      "SELECT activation_count AS c FROM support_codes WHERE code_hash = ?",
+    )
+      .bind(await sha256Hex("CODE-001"))
+      .first<{ c: number }>();
+    expect(row?.c).toBe(2);
+  });
+
+  it("同一ユーザーの同じコード再入力は ALREADY_ACTIVATED で二重付与しない", async () => {
     const env0 = makeEnv();
     await insertCode(env0, "CODE-001", "support");
 
