@@ -22,6 +22,8 @@ export interface AuthSecrets {
 export interface AuthVars {
   /** Twitch OAuth のコールバック URL(ワーカーの公開 URL) */
   TWITCH_OAUTH_REDIRECT_URL: string;
+  /** EventSub webhook のコールバック URL */
+  EVENTSUB_CALLBACK_URL: string;
 }
 
 export type AppEnv = Env &

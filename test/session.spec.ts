@@ -25,7 +25,7 @@ function makeEnv(): AppEnv {
 
 function requestWithCookie(token?: string): Request {
   const headers: Record<string, string> = {};
-  if (token) headers["Cookie"] = `tw2bs_session=${token}`;
+  if (token) headers["Cookie"] = `orbsky_session=${token}`;
   return new Request("https://example.com/", { headers });
 }
 
@@ -81,7 +81,7 @@ describe("session", () => {
 
   it("builds the session cookie header with security flags", () => {
     const header = sessionCookieHeader("tok", true);
-    expect(header).toContain("tw2bs_session=tok");
+    expect(header).toContain("orbsky_session=tok");
     expect(header).toContain("HttpOnly");
     expect(header).toContain("SameSite=Lax");
     expect(header).toContain("Secure");

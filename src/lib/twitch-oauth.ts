@@ -1,5 +1,5 @@
 import type { AppEnv } from "../types";
-import { encryptSecret } from "./crypto";
+import { decryptSecret, encryptSecret } from "./crypto";
 
 /**
  * Twitch OAuth(認可コードフロー)クライアント。
@@ -134,6 +134,30 @@ export async function consumeOAuthState(
   if (value === null) return false;
   await env.STATE.delete(key);
   return true;
+}
+
+/**
+ * 保存済みのユーザートークンを復号して自分の Twitch ユーザー情報を取得する。
+ * トークン失効時は TwitchOAuthError を投げる(再ログインを促す)。
+ */
+export async function fetchOwnTwitchUser(
+  env: AppEnv,
+  twitchUserId: string,
+): Promise<TwitchUserInfo> {
+  const row = await env.DB.prepare(
+    `SELECT twitch_access_token_enc AS accessTokenEnc, twitch_token_expires_at AS expiresAt
+     FROM users WHERE twitch_user_id = ?`,
+  )
+    .bind(twitchUserId)
+    .first<{ accessTokenEnc: string; expiresAt: number }>();
+  if (!row?.accessTokenEnc) {
+    throw new TwitchOAuthError("user not found or not logged in");
+  }
+  if (row.expiresAt < Date.now()) {
+    throw new TwitchOAuthError("トークンが失効しています。再ログインしてください");
+  }
+  const accessToken = await decryptSecret(env, row.accessTokenEnc);
+  return fetchTwitchUser(env, accessToken);
 }
 
 export async function upsertUserWithTokens(

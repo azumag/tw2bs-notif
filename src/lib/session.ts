@@ -6,7 +6,7 @@ import type { AppEnv } from "../types";
  */
 
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60; // 30日
-const SESSION_COOKIE = "tw2bs_session";
+const SESSION_COOKIE = "orbsky_session";
 const SESSION_PREFIX = "session:";
 
 export interface SessionData {

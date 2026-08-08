@@ -1,4 +1,5 @@
 import type { AppEnv } from "../types";
+import { STREAM_OFFLINE, STREAM_ONLINE } from "../types";
 
 const TOKEN_URL = "https://id.twitch.tv/oauth2/token";
 const API_URL = "https://api.twitch.tv/helix";
@@ -177,11 +178,21 @@ export async function listSubscriptions(
   env: AppEnv,
 ): Promise<TwitchSubscription[]> {
   const token = await getAppAccessToken(env);
-  const res = await twitchFetch(`${API_URL}/eventsub/subscriptions`, {
-    headers: authHeaders(env, token),
-  });
-  const data = (await res.json()) as { data: TwitchSubscription[] };
-  return data.data;
+  const all: TwitchSubscription[] = [];
+  let cursor: string | undefined;
+  do {
+    const suffix = cursor ? `?after=${encodeURIComponent(cursor)}` : "";
+    const res = await twitchFetch(`${API_URL}/eventsub/subscriptions${suffix}`, {
+      headers: authHeaders(env, token),
+    });
+    const data = (await res.json()) as {
+      data: TwitchSubscription[];
+      pagination?: { cursor?: string };
+    };
+    all.push(...data.data);
+    cursor = data.pagination?.cursor;
+  } while (cursor);
+  return all;
 }
 
 export async function deleteSubscription(
@@ -193,4 +204,58 @@ export async function deleteSubscription(
     `${API_URL}/eventsub/subscriptions?id=${encodeURIComponent(id)}`,
     { method: "DELETE", headers: authHeaders(env, token) },
   );
+}
+
+/**
+ * チャンネルに stream.online / stream.offline の購読を確保する。
+ * 同一 type+condition の購読が存在すれば(ステータスを問わず)スキップする。
+ * Twitch は同一条件の購読がどのステータスでも存在すると 409 を返すため。
+ */
+export async function ensureChannelSubscriptions(
+  env: AppEnv,
+  channelId: string,
+  callback: string,
+  secret: string,
+): Promise<void> {
+  const existing = await listSubscriptions(env);
+  for (const type of [STREAM_ONLINE, STREAM_OFFLINE] as const) {
+    const already = existing.some(
+      (s) =>
+        s.type === type && s.condition.broadcaster_user_id === channelId,
+    );
+    if (already) continue;
+    try {
+      await createSubscription(env, {
+        type,
+        version: "1",
+        condition: { broadcaster_user_id: channelId },
+        callback,
+        secret,
+      });
+    } catch (err) {
+      // 競合(二重クリック等)は正常系として扱う
+      if (err instanceof TwitchError && err.status === 409) {
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+/**
+ * チャンネルに対する購読を全て削除する。
+ */
+export async function removeChannelSubscriptions(
+  env: AppEnv,
+  channelId: string,
+): Promise<void> {
+  const existing = await listSubscriptions(env);
+  for (const sub of existing) {
+    if (
+      sub.condition.broadcaster_user_id === channelId &&
+      (sub.type === STREAM_ONLINE || sub.type === STREAM_OFFLINE)
+    ) {
+      await deleteSubscription(env, sub.id);
+    }
+  }
 }

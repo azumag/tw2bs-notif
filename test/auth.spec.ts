@@ -85,7 +85,7 @@ async function fetchAs(env: AppEnv, request: Request): Promise<Response> {
 
 function extractSessionToken(res: Response): string | null {
   const setCookie = res.headers.get("Set-Cookie");
-  const match = setCookie?.match(/tw2bs_session=([^;]+)/);
+  const match = setCookie?.match(/orbsky_session=([^;]+)/);
   return match?.[1] ?? null;
 }
 
@@ -242,7 +242,7 @@ describe("ページとログアウト", () => {
     const res = await fetchAs(
       env0,
       new Request("https://example.com/", {
-        headers: { Cookie: `tw2bs_session=${token}` },
+        headers: { Cookie: `orbsky_session=${token}` },
       }),
     );
     const body = await res.text();
@@ -260,7 +260,7 @@ describe("ページとログアウト", () => {
       env0,
       new Request("https://example.com/auth/logout", {
         method: "POST",
-        headers: { Cookie: `tw2bs_session=${token}` },
+        headers: { Cookie: `orbsky_session=${token}` },
         body: new URLSearchParams({ csrf }),
       }),
     );
@@ -277,7 +277,7 @@ describe("ページとログアウト", () => {
       env0,
       new Request("https://example.com/auth/logout", {
         method: "POST",
-        headers: { Cookie: `tw2bs_session=${token}` },
+        headers: { Cookie: `orbsky_session=${token}` },
         body: new URLSearchParams({ csrf: "wrong" }),
       }),
     );
