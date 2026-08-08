@@ -1,9 +1,25 @@
 import type { AppEnv } from "../types";
 import { STREAM_OFFLINE, STREAM_ONLINE } from "../types";
 import { processStreamEvent, type StreamEvent } from "./stream";
+import { logError } from "./logger";
 
 export const EVENTSUB_PATH = "/twitch/eventsub";
 export const WEBHOOK_SECRET_KEY = "twitch:webhook_secret";
+
+// Twitch EventSub webhook の現行仕様(2026-08 確認):
+// 署名ヘッダは Twitch-Eventsub-Message-Signature、HMAC 対象は
+// Message-Id + Message-Timestamp + 生ボディの連結
+// https://dev.twitch.tv/docs/eventsub/handling-webhook-events/
+const HDR_MESSAGE_ID = "Twitch-Eventsub-Message-Id";
+const HDR_MESSAGE_TIMESTAMP = "Twitch-Eventsub-Message-Timestamp";
+const HDR_MESSAGE_SIGNATURE = "Twitch-Eventsub-Message-Signature";
+const HDR_MESSAGE_TYPE = "Twitch-Eventsub-Message-Type";
+
+const MESSAGE_TYPE_NOTIFICATION = "notification";
+const MESSAGE_TYPE_VERIFICATION = "webhook_callback_verification";
+const MESSAGE_TYPE_REVOCATION = "revocation";
+
+const MAX_TIMESTAMP_AGE_MS = 10 * 60 * 1000;
 
 export interface EventSubPayload {
   subscription?: {
@@ -25,8 +41,10 @@ function hexToBytes(hex: string): Uint8Array {
   return bytes;
 }
 
-export async function verifyHmac(
+export async function verifyMessageSignature(
   secret: string,
+  messageId: string,
+  timestamp: string,
   body: string,
   signature: string | null,
 ): Promise<boolean> {
@@ -37,6 +55,7 @@ export async function verifyHmac(
   if (!/^[0-9a-fA-F]+$/.test(hex) || hex.length % 2 !== 0) {
     return false;
   }
+  const message = messageId + timestamp + body;
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -48,7 +67,7 @@ export async function verifyHmac(
     "HMAC",
     key,
     hexToBytes(hex.toLowerCase()),
-    new TextEncoder().encode(body),
+    new TextEncoder().encode(message),
   );
 }
 
@@ -67,11 +86,25 @@ export async function handleEventSub(
   }
 
   const rawBody = await request.text();
-  const signature = request.headers.get("X-Hub-Signature-256");
-  if (!(await verifyHmac(secret, rawBody, signature))) {
+  const messageId = request.headers.get(HDR_MESSAGE_ID) ?? "";
+  const timestamp = request.headers.get(HDR_MESSAGE_TIMESTAMP) ?? "";
+  const signature = request.headers.get(HDR_MESSAGE_SIGNATURE);
+
+  if (
+    !(await verifyMessageSignature(secret, messageId, timestamp, rawBody, signature))
+  ) {
     return new Response("invalid signature", { status: 401 });
   }
 
+  // タイムスタンプの鮮度チェック(10分以上前の再送は拒否)
+  if (timestamp) {
+    const ageMs = Date.now() - Date.parse(timestamp);
+    if (Number.isNaN(ageMs) || ageMs > MAX_TIMESTAMP_AGE_MS) {
+      return new Response("stale timestamp", { status: 401 });
+    }
+  }
+
+  const messageType = request.headers.get(HDR_MESSAGE_TYPE) ?? "";
   let payload: EventSubPayload;
   try {
     payload = JSON.parse(rawBody) as EventSubPayload;
@@ -79,12 +112,23 @@ export async function handleEventSub(
     return new Response("invalid json", { status: 400 });
   }
 
-  if (typeof payload.challenge === "string") {
-    // 購読登録時の検証リクエスト: challenge をそのまま返す
+  if (messageType === MESSAGE_TYPE_VERIFICATION) {
+    if (typeof payload.challenge !== "string") {
+      return new Response("invalid payload", { status: 400 });
+    }
+    // 購読登録時の検証: challenge をそのまま返す
     return new Response(payload.challenge, {
       status: 200,
       headers: { "Content-Type": "text/plain" },
     });
+  }
+
+  if (messageType === MESSAGE_TYPE_REVOCATION) {
+    return new Response(null, { status: 204 });
+  }
+
+  if (messageType !== MESSAGE_TYPE_NOTIFICATION) {
+    return new Response("ignored", { status: 200 });
   }
 
   const type = payload.subscription?.type;
@@ -113,6 +157,10 @@ export async function handleEventSub(
       typeof event.started_at === "string" ? event.started_at : undefined,
   };
 
-  ctx.waitUntil(processStreamEvent(env, streamEvent));
+  ctx.waitUntil(
+    processStreamEvent(env, streamEvent).catch((err) => {
+      logError("eventsub", "processStreamEvent rejected", err);
+    }),
+  );
   return new Response(null, { status: 202 });
 }

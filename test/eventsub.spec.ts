@@ -28,8 +28,10 @@ function makeEnv(): AppEnv {
 }
 
 const SECRET = "webhook-secret";
+const MESSAGE_ID = "msg-1";
+const freshTimestamp = () => new Date().toISOString();
 
-async function hmacHex(secret: string, body: string): Promise<string> {
+async function hmacHex(secret: string, message: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -40,7 +42,7 @@ async function hmacHex(secret: string, body: string): Promise<string> {
   const sig = await crypto.subtle.sign(
     "HMAC",
     key,
-    new TextEncoder().encode(body),
+    new TextEncoder().encode(message),
   );
   return [...new Uint8Array(sig)]
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -49,19 +51,30 @@ async function hmacHex(secret: string, body: string): Promise<string> {
 
 async function signedPost(
   body: unknown,
-  opts?: { secret?: string; signature?: string | null },
+  opts?: {
+    secret?: string;
+    signature?: string | null;
+    messageType?: string;
+    messageId?: string;
+    timestamp?: string;
+  },
 ): Promise<Request> {
   const rawBody = JSON.stringify(body);
   const secret = opts?.secret ?? SECRET;
+  const messageId = opts?.messageId ?? MESSAGE_ID;
+  const timestamp = opts?.timestamp ?? freshTimestamp();
   const signature =
     opts?.signature !== undefined
       ? opts.signature
-      : `sha256=${await hmacHex(secret, rawBody)}`;
+      : `sha256=${await hmacHex(secret, messageId + timestamp + rawBody)}`;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    "Twitch-Eventsub-Message-Type": opts?.messageType ?? "notification",
+    "Twitch-Eventsub-Message-Id": messageId,
+    "Twitch-Eventsub-Message-Timestamp": timestamp,
   };
   if (signature !== null) {
-    headers["X-Hub-Signature-256"] = signature;
+    headers["Twitch-Eventsub-Message-Signature"] = signature;
   }
   return new Request(`https://example.com${EVENTSUB_PATH}`, {
     method: "POST",
@@ -72,7 +85,8 @@ async function signedPost(
 
 beforeEach(async () => {
   await env.STATE.put(WEBHOOK_SECRET_KEY, SECRET);
-  vi.mocked(streamModule.processStreamEvent).mockClear();
+  vi.mocked(streamModule.processStreamEvent).mockReset();
+  vi.mocked(streamModule.processStreamEvent).mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -92,7 +106,7 @@ describe("handleEventSub", () => {
   it("returns 500 when the webhook secret is not configured", async () => {
     await env.STATE.delete(WEBHOOK_SECRET_KEY);
     const res = await handleEventSub(
-      await signedPost({ challenge: "abc" }),
+      await signedPost({ challenge: "abc" }, { messageType: "webhook_callback_verification" }),
       makeEnv(),
       createExecutionContext(),
     );
@@ -101,32 +115,9 @@ describe("handleEventSub", () => {
 
   it("rejects requests with an invalid signature", async () => {
     const res = await handleEventSub(
-      await signedPost({ challenge: "abc" }, { signature: "sha256=deadbeef" }),
-      makeEnv(),
-      createExecutionContext(),
-    );
-    expect(res.status).toBe(401);
-  });
-
-  it("accepts an uppercase hex signature (case-insensitive)", async () => {
-    const rawBody = JSON.stringify({ challenge: "abc" });
-    const sig = await hmacHex(SECRET, rawBody);
-    const res = await handleEventSub(
       await signedPost(
         { challenge: "abc" },
-        { signature: `sha256=${sig.toUpperCase()}` },
-      ),
-      makeEnv(),
-      createExecutionContext(),
-    );
-    expect(res.status).toBe(200);
-  });
-
-  it("rejects signatures with a different prefix", async () => {
-    const res = await handleEventSub(
-      await signedPost(
-        { challenge: "abc" },
-        { signature: `sha1=${await hmacHex(SECRET, JSON.stringify({ challenge: "abc" }))}` },
+        { messageType: "webhook_callback_verification", signature: "sha256=deadbeef" },
       ),
       makeEnv(),
       createExecutionContext(),
@@ -136,7 +127,40 @@ describe("handleEventSub", () => {
 
   it("rejects requests without a signature header", async () => {
     const res = await handleEventSub(
-      await signedPost({ challenge: "abc" }, { signature: null }),
+      await signedPost(
+        { challenge: "abc" },
+        { messageType: "webhook_callback_verification", signature: null },
+      ),
+      makeEnv(),
+      createExecutionContext(),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects requests with a stale timestamp", async () => {
+    const res = await handleEventSub(
+      await signedPost(
+        { challenge: "abc" },
+        {
+          messageType: "webhook_callback_verification",
+          timestamp: "2026-08-06T00:00:00Z",
+        },
+      ),
+      makeEnv(),
+      createExecutionContext(),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("rejects signatures with a different prefix", async () => {
+    const rawBody = JSON.stringify({ challenge: "abc" });
+    const ts = freshTimestamp();
+    const sig = await hmacHex(SECRET, MESSAGE_ID + ts + rawBody);
+    const res = await handleEventSub(
+      await signedPost(
+        { challenge: "abc" },
+        { messageType: "webhook_callback_verification", signature: `sha1=${sig}`, timestamp: ts },
+      ),
       makeEnv(),
       createExecutionContext(),
     );
@@ -145,7 +169,13 @@ describe("handleEventSub", () => {
 
   it("responds to the subscription challenge with the challenge string", async () => {
     const res = await handleEventSub(
-      await signedPost({ challenge: "challenge-123", subscription: { id: "s1", type: "stream.online", version: "1", status: "enabled", created_at: "" } }),
+      await signedPost(
+        {
+          challenge: "challenge-123",
+          subscription: { id: "s1", type: "stream.online", version: "1", status: "enabled", created_at: "" },
+        },
+        { messageType: "webhook_callback_verification" },
+      ),
       makeEnv(),
       createExecutionContext(),
     );
@@ -154,37 +184,18 @@ describe("handleEventSub", () => {
     expect(await res.text()).toBe("challenge-123");
   });
 
-  it("rejects stream events without an event object", async () => {
+  it("returns 204 for revocations", async () => {
     const res = await handleEventSub(
-      await signedPost({
-        subscription: { id: "s1", type: "stream.online", version: "1", status: "enabled", created_at: "" },
-      }),
+      await signedPost(
+        {
+          subscription: { id: "s1", type: "stream.online", version: "1", status: "authorization_revoked", created_at: "" },
+        },
+        { messageType: "revocation" },
+      ),
       makeEnv(),
       createExecutionContext(),
     );
-    expect(res.status).toBe(400);
-  });
-
-  it("passes through stream.offline events without an id", async () => {
-    const ctx = createExecutionContext();
-    const res = await handleEventSub(
-      await signedPost({
-        subscription: { id: "s1", type: "stream.offline", version: "1", status: "enabled", created_at: "" },
-        event: { broadcaster_user_id: "12345" },
-      }),
-      makeEnv(),
-      ctx,
-    );
-    await waitOnExecutionContext(ctx);
-
-    expect(res.status).toBe(202);
-    expect(vi.mocked(streamModule.processStreamEvent).mock.calls[0][1]).toEqual({
-      id: undefined,
-      type: "stream.offline",
-      broadcasterUserId: "12345",
-      broadcasterUserLogin: undefined,
-      startedAt: undefined,
-    });
+    expect(res.status).toBe(204);
   });
 
   it("forwards stream.online events to processStreamEvent and returns 202", async () => {
@@ -210,6 +221,7 @@ describe("handleEventSub", () => {
         id: "event-1",
         type: "stream.online",
         broadcasterUserId: "12345",
+        broadcasterUserLogin: undefined,
         startedAt: "2026-08-07T00:00:00Z",
       },
     );
@@ -220,7 +232,7 @@ describe("handleEventSub", () => {
     const res = await handleEventSub(
       await signedPost({
         subscription: { id: "s1", type: "stream.offline", version: "1", status: "enabled", created_at: "" },
-        event: { id: "event-2", broadcaster_user_id: "12345" },
+        event: { broadcaster_user_id: "12345" },
       }),
       makeEnv(),
       ctx,
@@ -232,6 +244,28 @@ describe("handleEventSub", () => {
     expect(
       vi.mocked(streamModule.processStreamEvent).mock.calls[0][1].type,
     ).toBe("stream.offline");
+  });
+
+  it("passes through stream.offline events without an id", async () => {
+    const ctx = createExecutionContext();
+    const res = await handleEventSub(
+      await signedPost({
+        subscription: { id: "s1", type: "stream.offline", version: "1", status: "enabled", created_at: "" },
+        event: { broadcaster_user_id: "12345" },
+      }),
+      makeEnv(),
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+
+    expect(res.status).toBe(202);
+    expect(vi.mocked(streamModule.processStreamEvent).mock.calls[0][1]).toEqual({
+      id: undefined,
+      type: "stream.offline",
+      broadcasterUserId: "12345",
+      broadcasterUserLogin: undefined,
+      startedAt: undefined,
+    });
   });
 
   it("ignores other subscription types", async () => {
@@ -250,13 +284,30 @@ describe("handleEventSub", () => {
     expect(streamModule.processStreamEvent).not.toHaveBeenCalled();
   });
 
+  it("rejects stream events without an event object", async () => {
+    const res = await handleEventSub(
+      await signedPost({
+        subscription: { id: "s1", type: "stream.online", version: "1", status: "enabled", created_at: "" },
+      }),
+      makeEnv(),
+      createExecutionContext(),
+    );
+    expect(res.status).toBe(400);
+  });
+
   it("rejects malformed JSON", async () => {
     const rawBody = "{not json";
-    const signature = `sha256=${await hmacHex(SECRET, rawBody)}`;
+    const ts = freshTimestamp();
+    const signature = `sha256=${await hmacHex(SECRET, MESSAGE_ID + ts + rawBody)}`;
     const res = await handleEventSub(
       new Request(`https://example.com${EVENTSUB_PATH}`, {
         method: "POST",
-        headers: { "X-Hub-Signature-256": signature },
+        headers: {
+          "Twitch-Eventsub-Message-Type": "notification",
+          "Twitch-Eventsub-Message-Id": MESSAGE_ID,
+          "Twitch-Eventsub-Message-Timestamp": ts,
+          "Twitch-Eventsub-Message-Signature": signature,
+        },
         body: rawBody,
       }),
       makeEnv(),

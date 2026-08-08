@@ -1,7 +1,7 @@
 import { env, exports } from "cloudflare:workers";
 import { describe, it, expect } from "vitest";
 
-async function hmacHex(secret: string, body: string): Promise<string> {
+async function hmacHex(secret: string, message: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -12,7 +12,7 @@ async function hmacHex(secret: string, body: string): Promise<string> {
   const sig = await crypto.subtle.sign(
     "HMAC",
     key,
-    new TextEncoder().encode(body),
+    new TextEncoder().encode(message),
   );
   return [...new Uint8Array(sig)]
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -45,7 +45,9 @@ describe("tw2bs-notif worker", () => {
       },
       event: { id: "event-1", broadcaster_user_id: "12345" },
     });
-    const signature = `sha256=${await hmacHex(secret, body)}`;
+    const messageId = "msg-1";
+    const timestamp = new Date().toISOString();
+    const signature = `sha256=${await hmacHex(secret, messageId + timestamp + body)}`;
 
     const response = await exports.default.fetch(
       "https://example.com/twitch/eventsub",
@@ -53,7 +55,10 @@ describe("tw2bs-notif worker", () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "X-Hub-Signature-256": signature,
+          "Twitch-Eventsub-Message-Type": "notification",
+          "Twitch-Eventsub-Message-Id": messageId,
+          "Twitch-Eventsub-Message-Timestamp": timestamp,
+          "Twitch-Eventsub-Message-Signature": signature,
         },
         body,
       },

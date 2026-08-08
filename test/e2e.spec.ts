@@ -55,7 +55,10 @@ const sessionResponse = {
   handle: "test.bsky.social",
 };
 
-async function hmacHex(secret: string, body: string): Promise<string> {
+const MESSAGE_ID = "msg-1";
+const freshTimestamp = () => new Date().toISOString();
+
+async function hmacHex(secret: string, message: string): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(secret),
@@ -66,7 +69,7 @@ async function hmacHex(secret: string, body: string): Promise<string> {
   const sig = await crypto.subtle.sign(
     "HMAC",
     key,
-    new TextEncoder().encode(body),
+    new TextEncoder().encode(message),
   );
   return [...new Uint8Array(sig)]
     .map((b) => b.toString(16).padStart(2, "0"))
@@ -77,14 +80,18 @@ async function sendEvent(
   payload: unknown,
 ): Promise<{ res: Response; ctx: ExecutionContext }> {
   const body = JSON.stringify(payload);
-  const signature = `sha256=${await hmacHex(SECRET, body)}`;
+  const ts = freshTimestamp();
+  const signature = `sha256=${await hmacHex(SECRET, MESSAGE_ID + ts + body)}`;
   const ctx = createExecutionContext();
   const res = await worker.fetch(
     new Request("https://example.com/twitch/eventsub", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Hub-Signature-256": signature,
+        "Twitch-Eventsub-Message-Type": "notification",
+        "Twitch-Eventsub-Message-Id": MESSAGE_ID,
+        "Twitch-Eventsub-Message-Timestamp": ts,
+        "Twitch-Eventsub-Message-Signature": signature,
       },
       body,
     }),

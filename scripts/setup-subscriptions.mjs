@@ -100,14 +100,20 @@ function wrangler(argsList, { allowFailure = false } = {}) {
 }
 
 function kvGet(key) {
-  const out = wrangler(["kv", "key", "get", key, "--binding", "STATE"], {
-    allowFailure: true,
-  });
-  return out.trim() || null;
+  const out = wrangler(
+    ["kv", "key", "get", key, "--binding", "STATE", "--preview", "false"],
+    { allowFailure: true },
+  );
+  const value = out.trim();
+  // キーが存在しない場合 wrangler は "Value not found" を返す
+  return value === "" || value === "Value not found" ? null : value;
 }
 
 function kvPut(key, value) {
-  const out = wrangler(["kv", "key", "put", key, value, "--binding", "STATE"]);
+  const out = wrangler([
+    "kv", "key", "put", key, value,
+    "--binding", "STATE", "--preview", "false",
+  ]);
   console.log("  " + out.trim().split("\n").at(-1));
 }
 

@@ -8,8 +8,8 @@
   "kv_namespaces": [
     {
       "binding": "STATE",
-      "id": "REPLACE_WITH_KV_ID",
-      "preview_id": "REPLACE_WITH_PREVIEW_KV_ID"
+      "id": "6e510c288304489baa35db6b569db360",
+      "preview_id": "93550d4ef90d40b6ac94dc705e3c3fd8"
     }
   ],
   "observability": {
