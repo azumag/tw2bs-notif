@@ -7,8 +7,14 @@
   },
   "vars": {
     "BSKY_POST_ON_START": "true",
-    "TWITCH_OAUTH_REDIRECT_URL": "https://tw2bs-notif.tsubasa-azumagakito.workers.dev/auth/twitch/callback"
+    "TWITCH_OAUTH_REDIRECT_URL": "https://orbsky.bluemoon.works/auth/twitch/callback"
   },
+  "routes": [
+    {
+      "pattern": "orbsky.bluemoon.works",
+      "custom_domain": true
+    }
+  ],
   "secrets": {
     "required": [
       "TWITCH_CLIENT_ID",
