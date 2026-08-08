@@ -1,0 +1,11 @@
+{
+  "name": "bsky-oauth-poc",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "poc": "node poc.mjs"
+  },
+  "dependencies": {
+    "@atproto/oauth-client-node": "^0.5.3"
+  }
+}
