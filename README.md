@@ -1,4 +1,4 @@
-# tw2bs-notif
+# orbsky
 
 Twitch の配信開始/終了を EventSub Webhook で検知し、Bluesky の streaming status(`app.bsky.actor.status#live`)に自動反映する Cloudflare Workers アプリケーション。
 
@@ -74,7 +74,7 @@ npx wrangler secret put BSKY_APP_PASSWORD
 
 ```bash
 npm run deploy
-CALLBACK_URL="https://tw2bs-notif.<あなたのアカウント>.workers.dev/twitch/eventsub" \
+CALLBACK_URL="https://orbsky.<あなたのアカウント>.workers.dev/twitch/eventsub" \
 TWITCH_CLIENT_ID=... TWITCH_CLIENT_SECRET=... TWITCH_BROADCASTER_ID=... \
 npm run setup
 ```
@@ -110,4 +110,4 @@ npm run deploy
 
 ## 進捗
 
-実装は GitHub Issues で管理している。https://github.com/azumag/tw2bs-notif/issues
+実装は GitHub Issues で管理している。https://github.com/azumag/orbsky/issues

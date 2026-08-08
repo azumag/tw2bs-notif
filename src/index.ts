@@ -41,13 +41,13 @@ function renderIndex(
 ): Response {
   if (!session) {
     return htmlPage(
-      "tw2bs-notif",
-      `<h1>tw2bs-notif</h1><p><a href="${LOGIN_PATH}">Twitchでログイン</a></p>`,
+      "orbsky",
+      `<h1>orbsky</h1><p><a href="${LOGIN_PATH}">Twitchでログイン</a></p>`,
     );
   }
   return htmlPage(
-    "tw2bs-notif",
-    `<h1>tw2bs-notif</h1><p>ログイン中: ${escapeHtml(session.twitchUserId)}</p>
+    "orbsky",
+    `<h1>orbsky</h1><p>ログイン中: ${escapeHtml(session.twitchUserId)}</p>
      <form method="post" action="${LOGOUT_PATH}">
        <input type="hidden" name="csrf" value="${session.csrf}">
        <button type="submit">ログアウト</button>

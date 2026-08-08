@@ -1,5 +1,5 @@
 {
-  "name": "tw2bs-notif",
+  "name": "orbsky",
   "version": "0.1.0",
   "private": true,
   "description": "Twitch配信開始を検知してBlueskyのstreaming status(#live)に自動反映するCloudflare Workers",

@@ -1,5 +1,5 @@
 {
-  "name": "tw2bs-notif",
+  "name": "orbsky",
   "compatibility_date": "2026-08-01",
   "main": "src/index.ts",
   "triggers": {
