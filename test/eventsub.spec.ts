@@ -11,12 +11,7 @@ import {
   handleEventSub,
 } from "../src/lib/eventsub";
 
-const streamModule = await import("../src/lib/stream");
-vi.mock("../src/lib/stream", () => ({
-  processStreamEvent: vi.fn(async () => {}),
-}));
-
-function makeEnv(): AppEnv {
+function makeEnv(sendMock?: ReturnType<typeof vi.fn>): AppEnv {
   return {
     ...env,
     TWITCH_CLIENT_ID: "test-client-id",
@@ -24,6 +19,13 @@ function makeEnv(): AppEnv {
     TWITCH_BROADCASTER_ID: "12345",
     BSKY_HANDLE: "test.bsky.social",
     BSKY_APP_PASSWORD: "test-app-password",
+    ENCRYPTION_KEY:
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    TWITCH_OAUTH_REDIRECT_URL: env.TWITCH_OAUTH_REDIRECT_URL,
+    EVENTSUB_CALLBACK_URL: env.EVENTSUB_CALLBACK_URL,
+    EVENTS: sendMock
+      ? ({ send: sendMock } as unknown as Queue<unknown>)
+      : (env.EVENTS as unknown as Queue<unknown>),
   } as AppEnv;
 }
 
@@ -85,8 +87,6 @@ async function signedPost(
 
 beforeEach(async () => {
   await env.STATE.put(WEBHOOK_SECRET_KEY, SECRET);
-  vi.mocked(streamModule.processStreamEvent).mockReset();
-  vi.mocked(streamModule.processStreamEvent).mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -198,7 +198,8 @@ describe("handleEventSub", () => {
     expect(res.status).toBe(204);
   });
 
-  it("forwards stream.online events to processStreamEvent and returns 202", async () => {
+  it("enqueues stream.online events to the queue and returns 202", async () => {
+    const sendMock = vi.fn(async () => {});
     const ctx = createExecutionContext();
     const res = await handleEventSub(
       await signedPost({
@@ -209,57 +210,36 @@ describe("handleEventSub", () => {
           started_at: "2026-08-07T00:00:00Z",
         },
       }),
-      makeEnv(),
+      makeEnv(sendMock),
       ctx,
     );
     await waitOnExecutionContext(ctx);
 
     expect(res.status).toBe(202);
-    expect(streamModule.processStreamEvent).toHaveBeenCalledWith(
-      expect.anything(),
-      {
-        id: "event-1",
-        type: "stream.online",
-        broadcasterUserId: "12345",
-        broadcasterUserLogin: undefined,
-        startedAt: "2026-08-07T00:00:00Z",
-      },
-    );
+    expect(sendMock).toHaveBeenCalledWith({
+      id: "event-1",
+      type: "stream.online",
+      broadcasterUserId: "12345",
+      broadcasterUserLogin: undefined,
+      startedAt: "2026-08-07T00:00:00Z",
+    });
   });
 
-  it("forwards stream.offline events and returns 202", async () => {
+  it("enqueues stream.offline events (without id)", async () => {
+    const sendMock = vi.fn(async () => {});
     const ctx = createExecutionContext();
     const res = await handleEventSub(
       await signedPost({
         subscription: { id: "s1", type: "stream.offline", version: "1", status: "enabled", created_at: "" },
         event: { broadcaster_user_id: "12345" },
       }),
-      makeEnv(),
+      makeEnv(sendMock),
       ctx,
     );
     await waitOnExecutionContext(ctx);
 
     expect(res.status).toBe(202);
-    expect(streamModule.processStreamEvent).toHaveBeenCalledTimes(1);
-    expect(
-      vi.mocked(streamModule.processStreamEvent).mock.calls[0][1].type,
-    ).toBe("stream.offline");
-  });
-
-  it("passes through stream.offline events without an id", async () => {
-    const ctx = createExecutionContext();
-    const res = await handleEventSub(
-      await signedPost({
-        subscription: { id: "s1", type: "stream.offline", version: "1", status: "enabled", created_at: "" },
-        event: { broadcaster_user_id: "12345" },
-      }),
-      makeEnv(),
-      ctx,
-    );
-    await waitOnExecutionContext(ctx);
-
-    expect(res.status).toBe(202);
-    expect(vi.mocked(streamModule.processStreamEvent).mock.calls[0][1]).toEqual({
+    expect(sendMock).toHaveBeenCalledWith({
       id: undefined,
       type: "stream.offline",
       broadcasterUserId: "12345",
@@ -268,20 +248,21 @@ describe("handleEventSub", () => {
     });
   });
 
-  it("ignores other subscription types", async () => {
+  it("does not enqueue other subscription types", async () => {
+    const sendMock = vi.fn(async () => {});
     const ctx = createExecutionContext();
     const res = await handleEventSub(
       await signedPost({
         subscription: { id: "s1", type: "user.update", version: "1", status: "enabled", created_at: "" },
         event: { user_id: "12345" },
       }),
-      makeEnv(),
+      makeEnv(sendMock),
       ctx,
     );
     await waitOnExecutionContext(ctx);
 
     expect(res.status).toBe(200);
-    expect(streamModule.processStreamEvent).not.toHaveBeenCalled();
+    expect(sendMock).not.toHaveBeenCalled();
   });
 
   it("rejects stream events without an event object", async () => {

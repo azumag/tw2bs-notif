@@ -1,15 +1,20 @@
 import { env } from "cloudflare:workers";
 import {
+  applyD1Migrations,
   createExecutionContext,
+  createMessageBatch,
   createScheduledController,
   waitOnExecutionContext,
+  type D1Migration,
 } from "cloudflare:test";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
 import type { AppEnv } from "../src/types";
 import { WEBHOOK_SECRET_KEY } from "../src/lib/eventsub";
+import type { StreamEvent } from "../src/lib/stream";
+import { migrations } from "./migrations";
 
-function makeEnv(): AppEnv {
+function makeEnv(sendMock?: ReturnType<typeof vi.fn>): AppEnv {
   return {
     ...env,
     TWITCH_CLIENT_ID: "e2e-client-id",
@@ -17,6 +22,13 @@ function makeEnv(): AppEnv {
     TWITCH_BROADCASTER_ID: "12345",
     BSKY_HANDLE: "test.bsky.social",
     BSKY_APP_PASSWORD: "test-app-password",
+    ENCRYPTION_KEY:
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    TWITCH_OAUTH_REDIRECT_URL: env.TWITCH_OAUTH_REDIRECT_URL,
+    EVENTSUB_CALLBACK_URL: env.EVENTSUB_CALLBACK_URL,
+    EVENTS: sendMock
+      ? ({ send: sendMock } as unknown as Queue<unknown>)
+      : (env.EVENTS as unknown as Queue<unknown>),
   } as AppEnv;
 }
 
@@ -78,6 +90,7 @@ async function hmacHex(secret: string, message: string): Promise<string> {
 
 async function sendEvent(
   payload: unknown,
+  sendMock?: ReturnType<typeof vi.fn>,
 ): Promise<{ res: Response; ctx: ExecutionContext }> {
   const body = JSON.stringify(payload);
   const ts = freshTimestamp();
@@ -95,11 +108,31 @@ async function sendEvent(
       },
       body,
     }),
-    makeEnv(),
+    makeEnv(sendMock),
     ctx,
   );
   await waitOnExecutionContext(ctx);
   return { res, ctx };
+}
+
+/** Queue に溜まったイベントを consumer(queue ハンドラ)で処理する */
+async function drainQueue(
+  sendMock: ReturnType<typeof vi.fn>,
+  env0: AppEnv,
+): Promise<void> {
+  const events: StreamEvent[] = sendMock.mock.calls.map((c) => c[0] as StreamEvent);
+  if (events.length === 0) return;
+  sendMock.mockClear();
+  const messages = events.map((body) => ({
+    body,
+    id: crypto.randomUUID(),
+    timestamp: new Date(),
+    attempts: 1,
+  }));
+  const batch = createMessageBatch<StreamEvent>("eventsub-events", messages);
+  const ctx = createExecutionContext();
+  await worker.queue?.(batch, env0);
+  await waitOnExecutionContext(ctx);
 }
 
 const onlinePayload = {
@@ -129,11 +162,21 @@ const offlinePayload = {
   event: { broadcaster_user_id: "12345", broadcaster_user_login: "azumag" },
 };
 
+beforeAll(async () => {
+  await applyD1Migrations(env.DB, migrations as D1Migration[]);
+});
+
 beforeEach(async () => {
   await env.STATE.put(WEBHOOK_SECRET_KEY, SECRET);
   await env.STATE.delete("stream:state:12345");
   await env.STATE.delete("twitch:token");
   await env.STATE.delete("bsky:session");
+  // チャンネル 12345 の連携を用意
+  await env.DB.prepare("DELETE FROM connections").run();
+  await env.DB.prepare(
+    `INSERT INTO connections (user_id, twitch_channel_id, twitch_login, twitch_display_name)
+     VALUES ('user-1', '12345', 'azumag', 'あずまぐ')`,
+  ).run();
   vi.stubGlobal("fetch", undefined);
 });
 
@@ -158,6 +201,7 @@ describe("E2E: Twitch EventSub → Bluesky streaming status", () => {
               data: [
                 {
                   id: "stream-100",
+                  broadcaster_user_id: "12345",
                   started_at: "2026-08-07T00:00:00Z",
                   title: "E2Eテスト配信",
                   user_login: "azumag",
@@ -182,9 +226,12 @@ describe("E2E: Twitch EventSub → Bluesky streaming status", () => {
       },
     });
 
-    // stream.online → Bluesky に設定
-    const online = await sendEvent(onlinePayload);
+    // stream.online → キュー投入 → consumer 処理 → Bluesky に設定
+    const sendMock = vi.fn(async () => {});
+    const env0 = makeEnv(sendMock);
+    const online = await sendEvent(onlinePayload, sendMock);
     expect(online.res.status).toBe(202);
+    await drainQueue(sendMock, env0);
 
     expect(putRecordBodies).toHaveLength(1);
     const put = putRecordBodies[0] as {
@@ -208,9 +255,10 @@ describe("E2E: Twitch EventSub → Bluesky streaming status", () => {
     expect(state.is_live).toBe(true);
     expect(state.stream_id).toBe("stream-100");
 
-    // stream.offline → ステータス削除
-    const offline = await sendEvent(offlinePayload);
+    // stream.offline → キュー投入 → consumer 処理 → ステータス削除
+    const offline = await sendEvent(offlinePayload, sendMock);
     expect(offline.res.status).toBe(202);
+    await drainQueue(sendMock, env0);
 
     expect(deleteRecordBodies).toHaveLength(1);
     expect(deleteRecordBodies[0].collection).toBe("app.bsky.actor.status");
@@ -241,8 +289,11 @@ describe("E2E: Twitch EventSub → Bluesky streaming status", () => {
       },
     });
 
-    await sendEvent(onlinePayload);
-    await sendEvent(onlinePayload); // 同じ stream id の再送
+    const sendMock = vi.fn(async () => {});
+    const env0 = makeEnv(sendMock);
+    await sendEvent(onlinePayload, sendMock);
+    await sendEvent(onlinePayload, sendMock); // 同じ stream id の再送
+    await drainQueue(sendMock, env0);
 
     expect(putRecordCalls).toBe(1);
   });

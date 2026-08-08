@@ -39,6 +39,35 @@ export async function findConnectionByChannel(
     .first<Connection>();
 }
 
+/** チャンネルに紐づく全 connections を返す(マルチユーザー対応) */
+export async function findConnectionsByChannel(
+  env: AppEnv,
+  channelId: string,
+): Promise<Connection[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT id, user_id AS userId, twitch_channel_id AS twitchChannelId,
+            twitch_login AS twitchLogin, twitch_display_name AS twitchDisplayName,
+            created_at AS createdAt
+     FROM connections WHERE twitch_channel_id = ?`,
+  )
+    .bind(channelId)
+    .all<Connection>();
+  return results;
+}
+
+/** 全 connections を返す */
+export async function listAllConnections(
+  env: AppEnv,
+): Promise<Connection[]> {
+  const { results } = await env.DB.prepare(
+    `SELECT id, user_id AS userId, twitch_channel_id AS twitchChannelId,
+            twitch_login AS twitchLogin, twitch_display_name AS twitchDisplayName,
+            created_at AS createdAt
+     FROM connections ORDER BY created_at ASC`,
+  ).all<Connection>();
+  return results;
+}
+
 export async function insertConnection(
   env: AppEnv,
   userId: string,

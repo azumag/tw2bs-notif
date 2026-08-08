@@ -26,6 +26,21 @@
       "ENCRYPTION_KEY"
     ]
   },
+  "queues": {
+    "producers": [
+      {
+        "binding": "EVENTS",
+        "queue": "eventsub-events"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "eventsub-events",
+        "max_batch_size": 10,
+        "max_batch_timeout": 10
+      }
+    ]
+  },
   "d1_databases": [
     {
       "binding": "DB",

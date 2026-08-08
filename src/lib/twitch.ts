@@ -123,29 +123,54 @@ export async function getStreamState(
   env: AppEnv,
   broadcasterId: string,
 ): Promise<StreamState | null> {
+  const states = await getStreamStatesBatch(env, [broadcasterId]);
+  return states.get(broadcasterId) ?? null;
+}
+
+/**
+ * 複数チャンネルの配信状態をバッチ取得する(100チャンネル/リクエスト)。
+ * 配信していないチャンネルは null。
+ */
+export async function getStreamStatesBatch(
+  env: AppEnv,
+  broadcasterIds: string[],
+): Promise<Map<string, StreamState | null>> {
+  const result = new Map<string, StreamState | null>();
   const token = await getAppAccessToken(env);
-  const res = await twitchFetch(
-    `${API_URL}/streams?user_id=${encodeURIComponent(broadcasterId)}`,
-    { headers: authHeaders(env, token) },
-  );
-  const data = (await res.json()) as {
-    data: Array<{
-      id: string;
-      started_at: string;
-      title: string;
-      user_login: string;
-    }>;
-  };
-  const stream = data.data[0];
-  if (!stream) {
-    return null;
+  for (let i = 0; i < broadcasterIds.length; i += 100) {
+    const chunk = broadcasterIds.slice(i, i + 100);
+    const query = chunk
+      .map((id) => `user_id=${encodeURIComponent(id)}`)
+      .join("&");
+    const res = await twitchFetch(`${API_URL}/streams?${query}`, {
+      headers: authHeaders(env, token),
+    });
+    const data = (await res.json()) as {
+      data: Array<{
+        id: string;
+        broadcaster_user_id: string;
+        started_at: string;
+        title: string;
+        user_login: string;
+      }>;
+    };
+    const found = new Set<string>();
+    for (const stream of data.data) {
+      result.set(stream.broadcaster_user_id, {
+        id: stream.id,
+        startedAt: stream.started_at,
+        title: stream.title,
+        userLogin: stream.user_login,
+      });
+      found.add(stream.broadcaster_user_id);
+    }
+    for (const id of chunk) {
+      if (!found.has(id)) {
+        result.set(id, null);
+      }
+    }
   }
-  return {
-    id: stream.id,
-    startedAt: stream.started_at,
-    title: stream.title,
-    userLogin: stream.user_login,
-  };
+  return result;
 }
 
 export async function createSubscription(

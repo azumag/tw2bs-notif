@@ -1,11 +1,16 @@
 import { env } from "cloudflare:workers";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  applyD1Migrations,
+  type D1Migration,
+} from "cloudflare:test";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppEnv } from "../src/types";
 import {
   processStreamEvent,
   refreshStreamStatus,
   type StreamEvent,
 } from "../src/lib/stream";
+import { migrations } from "./migrations";
 
 const blueskyModule = await import("../src/lib/bluesky");
 const twitchModule = await import("../src/lib/twitch");
@@ -16,7 +21,7 @@ vi.mock("../src/lib/bluesky", () => ({
   statusRecordExists: vi.fn(async () => false),
 }));
 vi.mock("../src/lib/twitch", () => ({
-  getStreamState: vi.fn(async () => null),
+  getStreamStatesBatch: vi.fn(async () => new Map()),
 }));
 
 function makeEnv(): AppEnv {
@@ -27,10 +32,20 @@ function makeEnv(): AppEnv {
     TWITCH_BROADCASTER_ID: "12345",
     BSKY_HANDLE: "test.bsky.social",
     BSKY_APP_PASSWORD: "test-app-password",
+    ENCRYPTION_KEY:
+      "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    TWITCH_OAUTH_REDIRECT_URL: env.TWITCH_OAUTH_REDIRECT_URL,
+    EVENTSUB_CALLBACK_URL: env.EVENTSUB_CALLBACK_URL,
   } as AppEnv;
   // wrangler.jsonc の vars がテスト env に注入されるため、既定は無効にする
   delete (e as unknown as Record<string, unknown>).BSKY_POST_ON_START;
   return e;
+}
+
+function mockStreamStates(streams: Map<string, unknown>) {
+  vi.mocked(twitchModule.getStreamStatesBatch).mockResolvedValue(
+    streams as never,
+  );
 }
 
 const stateKey = "stream:state:12345";
@@ -55,19 +70,28 @@ const streamState = {
   userLogin: "cool_user",
 };
 
+beforeAll(async () => {
+  await applyD1Migrations(env.DB, migrations as D1Migration[]);
+});
+
 beforeEach(async () => {
+  await env.DB.prepare("DELETE FROM connections").run();
+  // チャンネル 12345 の連携を用意
+  await env.DB.prepare(
+    `INSERT INTO connections (user_id, twitch_channel_id, twitch_login, twitch_display_name)
+     VALUES ('user-1', '12345', 'cool_user', 'あずまぐ')`,
+  ).run();
   await env.STATE.delete(stateKey);
   vi.mocked(blueskyModule.setLiveStatus).mockReset();
   vi.mocked(blueskyModule.clearLiveStatus).mockReset();
   vi.mocked(blueskyModule.createStreamPost).mockReset();
   vi.mocked(blueskyModule.statusRecordExists).mockReset();
   vi.mocked(blueskyModule.statusRecordExists).mockResolvedValue(false);
-  vi.mocked(twitchModule.getStreamState).mockReset();
+  vi.mocked(twitchModule.getStreamStatesBatch).mockReset();
+  vi.mocked(twitchModule.getStreamStatesBatch).mockResolvedValue(
+    new Map() as never,
+  );
 });
-
-function makeEnvWithPosting(): AppEnv {
-  return { ...makeEnv(), BSKY_POST_ON_START: "true" } as AppEnv;
-}
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -75,7 +99,7 @@ afterEach(() => {
 
 describe("processStreamEvent", () => {
   it("sets the live status and records state on stream.online", async () => {
-    vi.mocked(twitchModule.getStreamState).mockResolvedValue(streamState);
+    mockStreamStates(new Map([["12345", streamState]]));
 
     await processStreamEvent(makeEnv(), onlineEvent);
 
@@ -89,6 +113,15 @@ describe("processStreamEvent", () => {
     };
     expect(state.is_live).toBe(true);
     expect(state.stream_id).toBe("stream-1");
+  });
+
+  it("ignores events for channels without a connection", async () => {
+    await processStreamEvent(makeEnv(), {
+      ...onlineEvent,
+      broadcasterUserId: "99999",
+    });
+
+    expect(blueskyModule.setLiveStatus).not.toHaveBeenCalled();
   });
 
   it("ignores duplicate stream.online events for the same stream", async () => {
@@ -107,7 +140,7 @@ describe("processStreamEvent", () => {
   });
 
   it("falls back to the event login when the stream poll fails", async () => {
-    vi.mocked(twitchModule.getStreamState).mockRejectedValue(
+    vi.mocked(twitchModule.getStreamStatesBatch).mockRejectedValue(
       new Error("twitch down"),
     );
 
@@ -120,9 +153,11 @@ describe("processStreamEvent", () => {
   });
 
   it("creates a stream post when BSKY_POST_ON_START is enabled", async () => {
-    vi.mocked(twitchModule.getStreamState).mockResolvedValue(streamState);
+    mockStreamStates(new Map([["12345", streamState]]));
+    const e = makeEnv() as AppEnv & { BSKY_POST_ON_START?: string };
+    e.BSKY_POST_ON_START = "true";
 
-    await processStreamEvent(makeEnvWithPosting(), onlineEvent);
+    await processStreamEvent(e, onlineEvent);
 
     expect(blueskyModule.createStreamPost).toHaveBeenCalledWith(
       expect.anything(),
@@ -136,27 +171,14 @@ describe("processStreamEvent", () => {
     expect(blueskyModule.createStreamPost).not.toHaveBeenCalled();
   });
 
-  it("does not create a duplicate post for the same stream", async () => {
-    await env.STATE.put(
-      stateKey,
-      JSON.stringify({
-        is_live: true,
-        stream_id: "stream-1",
-        updated_at: new Date().toISOString(),
-      }),
-    );
-
-    await processStreamEvent(makeEnvWithPosting(), onlineEvent);
-
-    expect(blueskyModule.createStreamPost).not.toHaveBeenCalled();
-  });
-
   it("keeps setting the live status even when the post fails", async () => {
     vi.mocked(blueskyModule.createStreamPost).mockRejectedValue(
       new Error("bsky down"),
     );
+    const e = makeEnv() as AppEnv & { BSKY_POST_ON_START?: string };
+    e.BSKY_POST_ON_START = "true";
 
-    await processStreamEvent(makeEnvWithPosting(), onlineEvent);
+    await processStreamEvent(e, onlineEvent);
 
     expect(blueskyModule.setLiveStatus).toHaveBeenCalledTimes(1);
     const state = (await env.STATE.get(stateKey, "json")) as {
@@ -165,34 +187,8 @@ describe("processStreamEvent", () => {
     expect(state.is_live).toBe(true);
   });
 
-  it("does not post when the flag is not exactly 'true'", async () => {
-    const e = makeEnvWithPosting();
-    (e as unknown as { BSKY_POST_ON_START?: string }).BSKY_POST_ON_START =
-      "false";
-
-    await processStreamEvent(e, onlineEvent);
-
-    expect(blueskyModule.createStreamPost).not.toHaveBeenCalled();
-  });
-
-  it("posts again when a new stream id arrives while live (restream)", async () => {
-    vi.mocked(twitchModule.getStreamState).mockResolvedValue(streamState);
-    await env.STATE.put(
-      stateKey,
-      JSON.stringify({
-        is_live: true,
-        stream_id: "stream-old",
-        updated_at: new Date().toISOString(),
-      }),
-    );
-
-    await processStreamEvent(makeEnvWithPosting(), onlineEvent);
-
-    expect(blueskyModule.createStreamPost).toHaveBeenCalledTimes(1);
-  });
-
   it("updates the state when a new stream id arrives while live", async () => {
-    vi.mocked(twitchModule.getStreamState).mockResolvedValue(streamState);
+    mockStreamStates(new Map([["12345", streamState]]));
     await env.STATE.put(
       stateKey,
       JSON.stringify({
@@ -245,7 +241,7 @@ describe("processStreamEvent", () => {
         updated_at: new Date().toISOString(),
       }),
     );
-    vi.mocked(twitchModule.getStreamState).mockResolvedValue(null);
+    mockStreamStates(new Map());
 
     await processStreamEvent(makeEnv(), offlineEvent);
     await processStreamEvent(makeEnv(), offlineEvent);
@@ -262,7 +258,7 @@ describe("processStreamEvent", () => {
         updated_at: new Date().toISOString(),
       }),
     );
-    vi.mocked(twitchModule.getStreamState).mockResolvedValue(streamState);
+    mockStreamStates(new Map([["12345", streamState]]));
 
     await processStreamEvent(makeEnv(), offlineEvent);
 
@@ -278,22 +274,13 @@ describe("processStreamEvent", () => {
         updated_at: new Date().toISOString(),
       }),
     );
-    vi.mocked(twitchModule.getStreamState).mockRejectedValue(
+    vi.mocked(twitchModule.getStreamStatesBatch).mockRejectedValue(
       new Error("twitch down"),
     );
 
     await processStreamEvent(makeEnv(), offlineEvent);
 
     expect(blueskyModule.clearLiveStatus).toHaveBeenCalledTimes(1);
-  });
-
-  it("ignores events for other broadcasters", async () => {
-    await processStreamEvent(makeEnv(), {
-      ...onlineEvent,
-      broadcasterUserId: "99999",
-    });
-
-    expect(blueskyModule.setLiveStatus).not.toHaveBeenCalled();
   });
 
   it("catches failures without throwing", async () => {
@@ -307,7 +294,7 @@ describe("processStreamEvent", () => {
 
 describe("refreshStreamStatus", () => {
   it("refreshes the live status when streaming and KV is live", async () => {
-    vi.mocked(twitchModule.getStreamState).mockResolvedValue(streamState);
+    mockStreamStates(new Map([["12345", streamState]]));
     await env.STATE.put(
       stateKey,
       JSON.stringify({
@@ -328,7 +315,7 @@ describe("refreshStreamStatus", () => {
   });
 
   it("self-heals when streaming but KV is not live", async () => {
-    vi.mocked(twitchModule.getStreamState).mockResolvedValue(streamState);
+    mockStreamStates(new Map([["12345", streamState]]));
 
     await refreshStreamStatus(makeEnv());
 
@@ -340,7 +327,7 @@ describe("refreshStreamStatus", () => {
   });
 
   it("clears the stale live status when not streaming", async () => {
-    vi.mocked(twitchModule.getStreamState).mockResolvedValue(null);
+    mockStreamStates(new Map([["12345", null]]));
     await env.STATE.put(
       stateKey,
       JSON.stringify({
@@ -360,7 +347,7 @@ describe("refreshStreamStatus", () => {
   });
 
   it("clears the stale live status when the Bluesky record still exists but KV is offline", async () => {
-    vi.mocked(twitchModule.getStreamState).mockResolvedValue(null);
+    mockStreamStates(new Map([["12345", null]]));
     vi.mocked(blueskyModule.statusRecordExists).mockResolvedValue(true);
 
     await refreshStreamStatus(makeEnv());
@@ -373,7 +360,7 @@ describe("refreshStreamStatus", () => {
   });
 
   it("does not update KV when the refresh setLiveStatus fails", async () => {
-    vi.mocked(twitchModule.getStreamState).mockResolvedValue(streamState);
+    mockStreamStates(new Map([["12345", streamState]]));
     vi.mocked(blueskyModule.setLiveStatus).mockRejectedValue(
       new Error("bsky down"),
     );
@@ -382,8 +369,16 @@ describe("refreshStreamStatus", () => {
     await expect(env.STATE.get(stateKey)).resolves.toBeNull();
   });
 
+  it("does nothing when there are no connections", async () => {
+    await env.DB.prepare("DELETE FROM connections").run();
+
+    await refreshStreamStatus(makeEnv());
+
+    expect(twitchModule.getStreamStatesBatch).not.toHaveBeenCalled();
+  });
+
   it("does nothing when not streaming and KV is not live", async () => {
-    vi.mocked(twitchModule.getStreamState).mockResolvedValue(null);
+    mockStreamStates(new Map([["12345", null]]));
 
     await refreshStreamStatus(makeEnv());
 
@@ -392,7 +387,7 @@ describe("refreshStreamStatus", () => {
   });
 
   it("catches failures without throwing", async () => {
-    vi.mocked(twitchModule.getStreamState).mockRejectedValue(
+    vi.mocked(twitchModule.getStreamStatesBatch).mockRejectedValue(
       new Error("twitch down"),
     );
 

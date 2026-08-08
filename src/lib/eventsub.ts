@@ -1,6 +1,6 @@
 import type { AppEnv } from "../types";
 import { STREAM_OFFLINE, STREAM_ONLINE } from "../types";
-import { processStreamEvent, type StreamEvent } from "./stream";
+import type { StreamEvent } from "./stream";
 import { logError } from "./logger";
 
 export const EVENTSUB_PATH = "/twitch/eventsub";
@@ -158,8 +158,8 @@ export async function handleEventSub(
   };
 
   ctx.waitUntil(
-    processStreamEvent(env, streamEvent).catch((err) => {
-      logError("eventsub", "processStreamEvent rejected", err);
+    env.EVENTS.send(streamEvent).catch((err) => {
+      logError("eventsub", "queue send failed", err);
     }),
   );
   return new Response(null, { status: 202 });

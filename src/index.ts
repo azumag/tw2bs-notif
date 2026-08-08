@@ -1,5 +1,5 @@
 import { EVENTSUB_PATH, handleEventSub } from "./lib/eventsub";
-import { refreshStreamStatus } from "./lib/stream";
+import { processStreamEvent, refreshStreamStatus } from "./lib/stream";
 import type { AppEnv } from "./types";
 import {
   buildLoginUrl,
@@ -16,6 +16,7 @@ import {
   getSession,
   sessionCookieHeader,
 } from "./lib/session";
+import type { StreamEvent } from "./lib/stream";
 import {
   ensureChannelSubscriptions,
   removeChannelSubscriptions,
@@ -527,4 +528,9 @@ export default {
   ) {
     ctx.waitUntil(refreshStreamStatus(env));
   },
-} satisfies ExportedHandler<AppEnv>;
+  async queue(batch: MessageBatch<StreamEvent>, env: AppEnv): Promise<void> {
+    for (const message of batch.messages) {
+      await processStreamEvent(env, message.body);
+    }
+  },
+} satisfies ExportedHandler<AppEnv, StreamEvent>;

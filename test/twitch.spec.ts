@@ -248,6 +248,7 @@ describe("getStreamState", () => {
           data: [
             {
               id: "stream-1",
+              broadcaster_user_id: "12345",
               started_at: "2026-08-07T00:00:00Z",
               title: "テスト配信",
               user_login: "cool_user",
