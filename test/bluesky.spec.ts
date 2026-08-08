@@ -281,6 +281,28 @@ describe("setLiveStatus", () => {
     expect(sessionCalls).toHaveLength(2);
   });
 
+  it("always includes title and description in the embed (PDS requires title)", async () => {
+    let recordBody: Record<string, unknown> | undefined;
+    mockFetch({
+      "com.atproto.server.createSession": async () => jsonResponse(sessionResponse),
+      "com.atproto.repo.getRecord": async () =>
+        jsonResponse(
+          { error: "RecordNotFound", message: "Could not locate record" },
+          400,
+        ),
+      "com.atproto.repo.putRecord": async (_url, init) => {
+        recordBody = JSON.parse(String(init?.body));
+        return jsonResponse({ uri: "at://.../self", cid: "new-cid" });
+      },
+    });
+
+    await setLiveStatus(makeEnv(), { uri: "https://www.twitch.tv/example" });
+
+    const external = (recordBody as { record: { embed: { external: { title: string; description: string } } } }).record.embed.external;
+    expect(external.title).toBe("");
+    expect(external.description).toBe("");
+  });
+
   it("throws non-InvalidSwap errors immediately", async () => {
     mockFetch({
       "com.atproto.server.createSession": async () => jsonResponse(sessionResponse),

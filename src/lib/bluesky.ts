@@ -19,8 +19,8 @@ export interface LiveStatusRecord {
     external: {
       $type: "app.bsky.embed.external#external";
       uri: string;
-      title?: string;
-      description?: string;
+      title: string;
+      description: string;
     };
   };
 }
@@ -151,8 +151,9 @@ export async function setLiveStatus(
         external: {
           $type: "app.bsky.embed.external#external",
           uri: input.uri,
-          title: input.title,
-          description: input.description,
+          // PDS は title を必須として検証する(空文字は許容)
+          title: input.title ?? "",
+          description: input.description ?? "",
         },
       },
     };
