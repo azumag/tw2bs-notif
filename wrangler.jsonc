@@ -6,8 +6,27 @@
     "crons": ["0,30 * * * *"]
   },
   "vars": {
-    "BSKY_POST_ON_START": "true"
+    "BSKY_POST_ON_START": "true",
+    "TWITCH_OAUTH_REDIRECT_URL": "https://tw2bs-notif.tsubasa-azumagakito.workers.dev/auth/twitch/callback"
   },
+  "secrets": {
+    "required": [
+      "TWITCH_CLIENT_ID",
+      "TWITCH_CLIENT_SECRET",
+      "TWITCH_BROADCASTER_ID",
+      "BSKY_HANDLE",
+      "BSKY_APP_PASSWORD",
+      "ENCRYPTION_KEY"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tw2bs-notif-db",
+      "database_id": "a44c187e-de8c-4253-bead-80d95674c55f",
+      "migrations_dir": "migrations"
+    }
+  ],
   "kv_namespaces": [
     {
       "binding": "STATE",

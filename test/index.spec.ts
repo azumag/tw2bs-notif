@@ -20,10 +20,10 @@ async function hmacHex(secret: string, message: string): Promise<string> {
 }
 
 describe("tw2bs-notif worker", () => {
-  it("responds with running message on GET /", async () => {
+  it("responds with the login page on GET /", async () => {
     const response = await exports.default.fetch("https://example.com/");
     expect(response.status).toBe(200);
-    expect(await response.text()).toBe("tw2bs-notif is running");
+    expect(await response.text()).toContain("Twitchでログイン");
   });
 
   it("can read and write KV values", async () => {

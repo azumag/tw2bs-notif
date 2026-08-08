@@ -14,7 +14,22 @@ export interface FeatureVars {
   BSKY_POST_ON_START?: string;
 }
 
-export type AppEnv = Env & TwitchSecrets & BlueskySecrets & FeatureVars;
+export interface AuthSecrets {
+  /** トークン暗号化キー(32バイトをhexで) */
+  ENCRYPTION_KEY: string;
+}
+
+export interface AuthVars {
+  /** Twitch OAuth のコールバック URL(ワーカーの公開 URL) */
+  TWITCH_OAUTH_REDIRECT_URL: string;
+}
+
+export type AppEnv = Env &
+  TwitchSecrets &
+  BlueskySecrets &
+  FeatureVars &
+  AuthSecrets &
+  AuthVars;
 
 export const STREAM_ONLINE = "stream.online";
 export const STREAM_OFFLINE = "stream.offline";
