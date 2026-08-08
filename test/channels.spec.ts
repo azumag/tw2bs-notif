@@ -114,6 +114,8 @@ beforeAll(async () => {
 beforeEach(async () => {
   await env.DB.prepare("DELETE FROM connections").run();
   await env.DB.prepare("DELETE FROM users").run();
+  await env.DB.prepare("DELETE FROM user_licenses").run();
+  await env.DB.prepare("DELETE FROM support_codes").run();
   await env.STATE.put("twitch:webhook_secret", "webhook-secret");
 });
 
@@ -402,6 +404,109 @@ describe("チャンネル連携ページ", () => {
     );
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("無効なリクエスト");
+  });
+
+  it("無料ユーザーは2チャンネル目を連携できない(特典ゲート)", async () => {
+    mockFetch({
+      "api.twitch.tv/helix/users": async () => jsonResponse(usersResponse),
+      "id.twitch.tv/oauth2/token": async () =>
+        jsonResponse({
+          access_token: "app-token",
+          expires_in: 5000000,
+          token_type: "bearer",
+          scope: [],
+        }),
+      "eventsub/subscriptions": async () => jsonResponse({ data: [] }),
+    });
+    const env0 = makeEnv();
+    const { cookie, csrf } = await loginAs(env0);
+
+    // 1件目の連携を作成
+    await env0.DB.prepare(
+      `INSERT INTO connections (user_id, twitch_channel_id, twitch_login, twitch_display_name)
+       VALUES ('12345', '99999', 'other', '別チャンネル')`,
+    ).run();
+
+    // 2件目(自分のチャンネル)を連携しようとする → 拒否
+    const res = await fetchAs(
+      env0,
+      new Request("https://example.com/channels/connect", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: new URLSearchParams({ csrf }),
+      }),
+    );
+    expect(await res.text()).toContain("無料プランでは1つまで");
+
+    const { results } = await env0.DB.prepare(
+      "SELECT COUNT(*) AS c FROM connections",
+    ).all<{ c: number }>();
+    expect(results[0].c).toBe(1);
+  });
+
+  it("特典(Fanboxコード)ユーザーは複数チャンネルを連携できる", async () => {
+    let createCount = 0;
+    mockFetch({
+      "api.twitch.tv/helix/users": async () => jsonResponse(usersResponse),
+      "id.twitch.tv/oauth2/token": async () =>
+        jsonResponse({
+          access_token: "app-token",
+          expires_in: 5000000,
+          token_type: "bearer",
+          scope: [],
+        }),
+      "eventsub/subscriptions": async (url, init) => {
+        if (init?.method === "POST") {
+          createCount++;
+          const body = JSON.parse(String(init?.body));
+          return jsonResponse({
+            data: [
+              { id: `sub-${createCount}`, ...subscriptionBase, type: body.type, condition: body.condition },
+            ],
+          });
+        }
+        return jsonResponse({ data: [] });
+      },
+    });
+    const env0 = makeEnv();
+    const { cookie, csrf } = await loginAs(env0);
+
+    // Fanbox コードで特典を付与
+    const codeHash = await (async () => {
+      const digest = await crypto.subtle.digest(
+        "SHA-256",
+        new TextEncoder().encode("GATE-CODE"),
+      );
+      return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    })();
+    await env0.DB.prepare(
+      "INSERT INTO support_codes (code_hash, plan_type) VALUES (?, 'support')",
+    )
+      .bind(codeHash)
+      .run();
+    const { activateCode } = await import("../src/lib/support");
+    await activateCode(env0, "12345", "GATE-CODE");
+
+    // 1件目 + 2件目(自分のチャンネル)を連携 → 両方成功
+    await env0.DB.prepare(
+      `INSERT INTO connections (user_id, twitch_channel_id, twitch_login, twitch_display_name)
+       VALUES ('12345', '99999', 'other', '別チャンネル')`,
+    ).run();
+
+    const res = await fetchAs(
+      env0,
+      new Request("https://example.com/channels/connect", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: new URLSearchParams({ csrf }),
+      }),
+    );
+    expect(res.status).toBe(302);
+
+    const { results } = await env0.DB.prepare(
+      "SELECT COUNT(*) AS c FROM connections",
+    ).all<{ c: number }>();
+    expect(results[0].c).toBe(2);
   });
 
   it("連携を解除すると connections が消え購読が削除され Bluesky が解除される", async () => {

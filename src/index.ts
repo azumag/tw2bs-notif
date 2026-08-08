@@ -31,6 +31,7 @@ import { clearLiveStatus } from "./lib/bluesky";
 import {
   activateCode,
   deactivateEntitlements,
+  hasActiveEntitlement,
   listEntitlements,
   SupportCodeError,
 } from "./lib/support";
@@ -210,6 +211,15 @@ async function handleConnectChannel(
     const user = await fetchOwnTwitchUser(env, session.twitchUserId);
     const existing = await findConnectionByChannel(env, user.id, user.id);
     if (!existing) {
+      // 特典ゲート: 無料は1チャンネルまで、特典(Fanboxコード or Twitchサブスク)で複数可
+      const count = await listConnections(env, session.twitchUserId);
+      if (count.length >= 1 && !(await hasActiveEntitlement(env, session.twitchUserId))) {
+        return htmlPage(
+          "特典",
+          `<p>連携できるチャンネルは無料プランでは1つまでです。サポートコードまたはTwitchサブスクで複数連携が解放されます。</p>
+           <p><a href="${SUPPORT_PATH}">特典ページへ</a></p>`,
+        );
+      }
       await insertConnection(env, session.twitchUserId, {
         id: user.id,
         login: user.login,
