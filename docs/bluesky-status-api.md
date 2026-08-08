@@ -45,6 +45,7 @@ rkey:       self (固定)
 |---|---|---|
 | rkey | `self` のみインデックス対象 | `packages/bsky/src/data-plane/server/indexing/plugins/status.ts` |
 | durationMinutes クランプ | **最小5分 / 最大4時間(240分)** に強制。`expiresAt = インデックス時刻 + (クランプ後) durationMinutes`。4時間超の配信はバッジが自動失効する | `packages/bsky/src/views/index.ts` の `status()` |
+| embed.external.title | **必須**(2026-08-08 実機確認)。無しで putRecord すると `Missing required key "title" at $.record.embed.external` で 400。空文字は許容 | 実機検証 |
 | `isActive` | `expiresAt > 現在時刻` で判定され、失効後は `isActive: false` | 同上 |
 | `isDisabled` | モデレーターによる停止時のみ、**本人にだけ**返る | 同上 |
 | embed のホスト制限 | アプリ側で許可ドメイン制限(β期間中)。**twitch.tv はデフォルト許可** | `social-app/src/features/liveNow/index.tsx` |
