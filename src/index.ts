@@ -27,6 +27,12 @@ import {
   listConnections,
 } from "./lib/connections";
 import { clearLiveStatus } from "./lib/bluesky";
+import {
+  activateCode,
+  deactivateEntitlements,
+  listEntitlements,
+  SupportCodeError,
+} from "./lib/support";
 import { logError, logInfo } from "./lib/logger";
 
 const LOGIN_PATH = "/auth/twitch/login";
@@ -35,6 +41,9 @@ const LOGOUT_PATH = "/auth/logout";
 const CHANNELS_PATH = "/channels";
 const CHANNELS_CONNECT_PATH = "/channels/connect";
 const CHANNELS_DISCONNECT_PATH = "/channels/disconnect";
+const SUPPORT_PATH = "/support";
+const SUPPORT_ACTIVATE_PATH = "/support/activate";
+const SUPPORT_DEACTIVATE_PATH = "/support/deactivate";
 const WEBHOOK_SECRET_KEY = "twitch:webhook_secret";
 
 function htmlPage(title: string, body: string): Response {
@@ -65,6 +74,7 @@ function renderIndex(
     "orbsky",
     `<h1>orbsky</h1><p>ログイン中: ${escapeHtml(session.twitchUserId)}</p>
      <p><a href="${CHANNELS_PATH}">チャンネル連携の管理</a></p>
+     <p><a href="${SUPPORT_PATH}">特典(サポートコード)</a></p>
      <form method="post" action="${LOGOUT_PATH}">
        <input type="hidden" name="csrf" value="${session.csrf}">
        <button type="submit">ログアウト</button>
@@ -262,6 +272,102 @@ async function handleDisconnectChannel(
   }
 }
 
+async function handleSupport(
+  request: Request,
+  env: AppEnv,
+): Promise<Response> {
+  const session = await getSession(env, request);
+  if (!session) {
+    return new Response(null, { status: 302, headers: { Location: "/" } });
+  }
+  const licenses = await listEntitlements(env, session.twitchUserId);
+  const rows = licenses
+    .map(
+      (l) =>
+        `<li>${escapeHtml(l.planType)}${l.fanboxId ? ` (fanbox: ${escapeHtml(l.fanboxId)})` : ""}
+         <small>(${escapeHtml(l.activatedAt)})</small></li>`,
+    )
+    .join("");
+  return htmlPage(
+    "orbsky - 特典",
+    `<h1>特典(サポートコード)</h1>
+     <p><a href="/">← 戻る</a></p>
+     <h2>現在の特典</h2>
+     <ul>${rows || "<li>(なし)</li>"}</ul>
+     <h2>サポートコードを入力</h2>
+     <form method="post" action="${SUPPORT_ACTIVATE_PATH}">
+       <input type="hidden" name="csrf" value="${session.csrf}">
+       <input type="text" name="code" required placeholder="コード">
+       <button type="submit">有効化</button>
+     </form>
+     <form method="post" action="${SUPPORT_DEACTIVATE_PATH}">
+       <input type="hidden" name="csrf" value="${session.csrf}">
+       <button type="submit">特典を解除</button>
+     </form>`,
+  );
+}
+
+async function handleSupportActivate(
+  request: Request,
+  env: AppEnv,
+): Promise<Response> {
+  const session = await getSession(env, request);
+  const form = await request.formData().catch(() => null);
+  const csrf = typeof form?.get("csrf") === "string" ? form.get("csrf") : null;
+  const codeRaw = form?.get("code");
+  const code = typeof codeRaw === "string" ? codeRaw.trim() : "";
+  if (!session || csrf !== session.csrf || !code) {
+    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+  }
+
+  try {
+    const license = await activateCode(env, session.twitchUserId, code);
+    logInfo("support", "code activated", {
+      userId: session.twitchUserId,
+      planType: license.planType,
+    });
+    return htmlPage(
+      "特典",
+      `<p>有効化しました(プラン: ${escapeHtml(license.planType)})</p>
+       <p><a href="${SUPPORT_PATH}">戻る</a></p>`,
+    );
+  } catch (err) {
+    const message =
+      err instanceof SupportCodeError ? err.message : "有効化に失敗しました";
+    if (err instanceof SupportCodeError) {
+      logInfo("support", "activate rejected", {
+        userId: session.twitchUserId,
+        reason: err.message,
+      });
+    } else {
+      logError("support", "activate failed", err, {
+        userId: session.twitchUserId,
+      });
+    }
+    return htmlPage(
+      "特典",
+      `<p>${escapeHtml(message)}</p><p><a href="${SUPPORT_PATH}">戻る</a></p>`,
+    );
+  }
+}
+
+async function handleSupportDeactivate(
+  request: Request,
+  env: AppEnv,
+): Promise<Response> {
+  const session = await getSession(env, request);
+  const form = await request.formData().catch(() => null);
+  const csrf = typeof form?.get("csrf") === "string" ? form.get("csrf") : null;
+  if (!session || csrf !== session.csrf) {
+    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+  }
+  await deactivateEntitlements(env, session.twitchUserId);
+  logInfo("support", "entitlements deactivated", {
+    userId: session.twitchUserId,
+  });
+  return new Response(null, { status: 302, headers: { Location: SUPPORT_PATH } });
+}
+
 export default {
   async fetch(
     request: Request,
@@ -290,6 +396,15 @@ export default {
     }
     if (url.pathname === CHANNELS_DISCONNECT_PATH && request.method === "POST") {
       return handleDisconnectChannel(request, env);
+    }
+    if (url.pathname === SUPPORT_PATH && request.method === "GET") {
+      return handleSupport(request, env);
+    }
+    if (url.pathname === SUPPORT_ACTIVATE_PATH && request.method === "POST") {
+      return handleSupportActivate(request, env);
+    }
+    if (url.pathname === SUPPORT_DEACTIVATE_PATH && request.method === "POST") {
+      return handleSupportDeactivate(request, env);
     }
     if (url.pathname === "/" && request.method === "GET") {
       const session = await getSession(env, request);
