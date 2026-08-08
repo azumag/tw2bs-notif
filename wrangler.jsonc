@@ -5,6 +5,9 @@
   "triggers": {
     "crons": ["0,30 * * * *"]
   },
+  "vars": {
+    "BSKY_POST_ON_START": "true"
+  },
   "kv_namespaces": [
     {
       "binding": "STATE",

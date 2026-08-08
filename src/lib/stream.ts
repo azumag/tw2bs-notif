@@ -1,6 +1,6 @@
 import type { AppEnv } from "../types";
 import { STREAM_OFFLINE, STREAM_ONLINE } from "../types";
-import { clearLiveStatus, setLiveStatus, statusRecordExists } from "./bluesky";
+import { clearLiveStatus, createStreamPost, setLiveStatus, statusRecordExists } from "./bluesky";
 import { getStreamState } from "./twitch";
 import { logError, logInfo } from "./logger";
 
@@ -63,6 +63,17 @@ export async function processStreamEvent(
       );
       const login = event.broadcasterUserLogin ?? stream?.userLogin;
       await setLiveStatus(env, { uri: twitchUrl(login), title: stream?.title });
+      // 配信開始ポスト(設定 ON 時のみ)。失敗してもステータス設定には影響させない
+      if (env.BSKY_POST_ON_START === "true") {
+        try {
+          await createStreamPost(env, {
+            uri: twitchUrl(login),
+            title: stream?.title,
+          });
+        } catch (err) {
+          logError(C, "stream post failed", err);
+        }
+      }
       await env.STATE.put(
         key,
         JSON.stringify({

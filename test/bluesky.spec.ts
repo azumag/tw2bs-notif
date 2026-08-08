@@ -5,6 +5,7 @@ import {
   BlueskyError,
   BSKY_BASE_URL,
   clearLiveStatus,
+  createStreamPost,
   getSession,
   setLiveStatus,
 } from "../src/lib/bluesky";
@@ -312,6 +313,71 @@ describe("setLiveStatus", () => {
 
     await expect(
       setLiveStatus(makeEnv(), { uri: "https://www.twitch.tv/example" }),
+    ).rejects.toBeInstanceOf(BlueskyError);
+  });
+});
+
+describe("createStreamPost", () => {
+  it("creates a feed post with the stream embed", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    const fetchMock = mockFetch({
+      "com.atproto.server.createSession": async () => jsonResponse(sessionResponse),
+      "com.atproto.repo.createRecord": async (_url, init) => {
+        postedBody = JSON.parse(String(init?.body));
+        return jsonResponse({
+          uri: "at://did:plc:test/app.bsky.feed.post/3abc",
+          cid: "post-cid",
+        });
+      },
+    });
+
+    await createStreamPost(makeEnv(), {
+      uri: "https://www.twitch.tv/azumagbanjo",
+      title: "テスト配信",
+    });
+
+    const record = postedBody?.record as {
+      $type: string;
+      text: string;
+      langs: string[];
+      embed: { external: { uri: string; title: string; description: string } };
+    };
+    expect(postedBody?.collection).toBe("app.bsky.feed.post");
+    expect(record.$type).toBe("app.bsky.feed.post");
+    expect(record.text).toBe("配信開始しました: テスト配信");
+    expect(record.langs).toEqual(["ja"]);
+    expect(record.embed.external.uri).toBe("https://www.twitch.tv/azumagbanjo");
+    expect(record.embed.external.title).toBe("テスト配信");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("falls back to empty strings when title is missing", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    mockFetch({
+      "com.atproto.server.createSession": async () => jsonResponse(sessionResponse),
+      "com.atproto.repo.createRecord": async (_url, init) => {
+        postedBody = JSON.parse(String(init?.body));
+        return jsonResponse({ uri: "at://...", cid: "post-cid" });
+      },
+    });
+
+    await createStreamPost(makeEnv(), { uri: "https://www.twitch.tv/azumagbanjo" });
+
+    const record = postedBody?.record as { text: string; embed: { external: { title: string; description: string } } };
+    expect(record.text).toBe("配信開始しました");
+    expect(record.embed.external.title).toBe("");
+    expect(record.embed.external.description).toBe("");
+  });
+
+  it("propagates API errors", async () => {
+    mockFetch({
+      "com.atproto.server.createSession": async () => jsonResponse(sessionResponse),
+      "com.atproto.repo.createRecord": async () =>
+        jsonResponse({ error: "InternalServerError", message: "boom" }, 500),
+    });
+
+    await expect(
+      createStreamPost(makeEnv(), { uri: "https://www.twitch.tv/azumagbanjo" }),
     ).rejects.toBeInstanceOf(BlueskyError);
   });
 });

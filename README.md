@@ -92,9 +92,21 @@ npx wrangler tail   # ログ確認(配信開始時に [info][stream] set live �
 ```
 
 - **配信開始**: Twitch で配信を開始 → 1分以内に Bluesky プロフィール(azumag.bsky.social 等)に「配信中」バッジ + twitch.tv リンクカードが表示される
-- **配信終了**: バッジが消える
+- **配信開始投稿**: 既定で **「配信開始しました: <タイトル>」の通常投稿**もタイムラインに自動作成される(`BSKY_POST_ON_START` フラグ)
+- **配信終了**: バッジが消える(投稿は残る)
 - **ロング配信(4時間超)**: cron(30分毎)が record を再書き込みするためバッジが継続する
 - ログ判別: `[info]` / `[error]` プレフィックスで成功・失敗が判別できる
+
+#### 配信開始投稿を OFF にする
+
+`wrangler.jsonc` の `vars` から `BSKY_POST_ON_START` 行を**削除**する(「false」に書き換えでは型エラーになる):
+
+```bash
+# wrangler.jsonc から BSKY_POST_ON_START を削除
+npx wrangler types   # 型を再生成
+npm run typecheck
+npm run deploy
+```
 
 ## 進捗
 

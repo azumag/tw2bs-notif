@@ -179,6 +179,40 @@ export async function statusRecordExists(env: AppEnv): Promise<boolean> {
   return (await getStatusRecordCid(env, session)) !== null;
 }
 
+export async function createStreamPost(
+  env: AppEnv,
+  input: { uri: string; title?: string; description?: string },
+): Promise<void> {
+  await withSessionRefresh(env, async (session) => {
+    await bskyFetch(`${BSKY_BASE_URL}/xrpc/com.atproto.repo.createRecord`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${session.accessJwt}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        repo: session.did,
+        collection: "app.bsky.feed.post",
+        record: {
+          $type: "app.bsky.feed.post",
+          text: `配信開始しました${input.title ? `: ${input.title}` : ""}`,
+          createdAt: new Date().toISOString(),
+          langs: ["ja"],
+          embed: {
+            $type: "app.bsky.embed.external",
+            external: {
+              $type: "app.bsky.embed.external#external",
+              uri: input.uri,
+              title: input.title ?? "",
+              description: input.description ?? "",
+            },
+          },
+        },
+      }),
+    });
+  });
+}
+
 export async function clearLiveStatus(env: AppEnv): Promise<void> {
   await withSessionRefresh(env, async (session) => {
     try {
