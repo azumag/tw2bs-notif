@@ -256,9 +256,6 @@ async function renderIndex(
   return htmlPage(
     "orbsky",
     `<section class="dashboard">
-       <span class="eyebrow">ホーム</span>
-       <h1>配信のお知らせ</h1>
-       <p>投稿設定やBluesky・マルチチャネル有効化の状態を、ここからまとめて確認できます。</p>
        <div class="dashboard-focus">
          ${dashboardFocus}
        </div>
