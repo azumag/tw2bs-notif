@@ -46,9 +46,18 @@ npx wrangler d1 execute tw2bs-notif-db --remote --command \
 ## デプロイ
 
 ```bash
-npm run deploy          # wrangler 設定に基づきデプロイ(シークレットは .dev.vars から)
+npm run deploy          # 手動デプロイ(シークレットは .dev.vars から)
 npm run setup           # ※旧単一テナント用。現在は UI の連携フロー(/channels)を使用すること
 ```
+
+### CI/CD(Workers Builds)
+
+GitHub の `main` ブランチへの push で自動デプロイされる(Workers Builds)。
+
+- build: `npm ci` / deploy: `npx wrangler deploy`
+- 設定場所: Cloudflare ダッシュボード → Workers & Pages → orbsky → Settings → Builds
+- 本番ブランチ(main)以外への push はプレビュー版(`wrangler versions upload`)が作られる
+- GitHub Actions は typecheck + test のみ(デプロイはしない)
 
 シークレット(`wrangler secret put`):
 
