@@ -7,7 +7,9 @@ import {
   deleteSubscription,
   fetchTwitchUserByLogin,
   getAppAccessToken,
+  getChannelInformation,
   getStreamState,
+  getStreamStatesBatch,
   listSubscriptions,
 } from "../src/lib/twitch";
 
@@ -306,15 +308,22 @@ describe("getStreamState", () => {
       "oauth2/token": async () => jsonResponse(tokenResponse),
       "streams?user_id=12345": async (_url, init) => {
         expect(init?.headers).toMatchObject({ Authorization: "Bearer token-1" });
+        // Helix Get Streams の実際のレスポンス形状(user_id であって
+        // broadcaster_user_id ではない)
         return jsonResponse({
           data: [
             {
               id: "stream-1",
-              broadcaster_user_id: "12345",
-              started_at: "2026-08-07T00:00:00Z",
-              title: "テスト配信",
-              game_name: "Music",
+              user_id: "12345",
               user_login: "cool_user",
+              user_name: "あずまぐ",
+              game_id: "509658",
+              game_name: "Music",
+              type: "live",
+              title: "テスト配信",
+              viewer_count: 3,
+              started_at: "2026-08-07T00:00:00Z",
+              language: "ja",
             },
           ],
         });
@@ -338,6 +347,72 @@ describe("getStreamState", () => {
     });
 
     await expect(getStreamState(makeEnv(), "12345")).resolves.toBeNull();
+  });
+
+  it("複数チャネルを一度に問い合わせ、配信中だけを引き当てる", async () => {
+    mockFetch({
+      "oauth2/token": async () => jsonResponse(tokenResponse),
+      "helix/streams?": async () =>
+        jsonResponse({
+          data: [
+            {
+              id: "stream-2",
+              user_id: "67890",
+              user_login: "second_user",
+              game_name: "Just Chatting",
+              title: "雑談中",
+              started_at: "2026-08-07T01:00:00Z",
+            },
+          ],
+        }),
+    });
+
+    const states = await getStreamStatesBatch(makeEnv(), ["12345", "67890"]);
+
+    expect(states.get("12345")).toBeNull();
+    expect(states.get("67890")).toEqual({
+      id: "stream-2",
+      startedAt: "2026-08-07T01:00:00Z",
+      title: "雑談中",
+      gameName: "Just Chatting",
+      userLogin: "second_user",
+    });
+  });
+});
+
+describe("getChannelInformation", () => {
+  it("チャネルに設定中のタイトル・カテゴリを返す", async () => {
+    mockFetch({
+      "oauth2/token": async () => jsonResponse(tokenResponse),
+      "helix/channels?broadcaster_id=12345": async (_url, init) => {
+        expect(init?.headers).toMatchObject({ Authorization: "Bearer token-1" });
+        return jsonResponse({
+          data: [
+            {
+              broadcaster_id: "12345",
+              broadcaster_login: "cool_user",
+              game_name: "Just Chatting",
+              title: "週末の雑談配信",
+            },
+          ],
+        });
+      },
+    });
+
+    await expect(getChannelInformation(makeEnv(), "12345")).resolves.toEqual({
+      title: "週末の雑談配信",
+      gameName: "Just Chatting",
+    });
+  });
+
+  it("チャネルが見つからなければ null", async () => {
+    mockFetch({
+      "oauth2/token": async () => jsonResponse(tokenResponse),
+      "helix/channels?broadcaster_id=12345": async () =>
+        jsonResponse({ data: [] }),
+    });
+
+    await expect(getChannelInformation(makeEnv(), "12345")).resolves.toBeNull();
   });
 });
 

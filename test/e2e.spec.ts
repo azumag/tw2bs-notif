@@ -215,11 +215,11 @@ describe("E2E: Twitch EventSub → Bluesky streaming status", () => {
               data: [
                 {
                   id: "stream-100",
-                  broadcaster_user_id: "12345",
+                  user_id: "12345",
+                  user_login: "azumag",
                   started_at: "2026-08-07T00:00:00Z",
                   title: "E2Eテスト配信",
                   game_name: "Music",
-                  user_login: "azumag",
                 },
               ],
             })

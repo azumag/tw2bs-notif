@@ -285,6 +285,10 @@ describe("サポートページ(HTTP)", () => {
     expect(body).toContain("同一のものをご利用いただけます");
     // サブスク確認ボタンには azumagbanjo のTwitchリンクを添える
     expect(body).toContain('href="https://www.twitch.tv/azumagbanjo"');
+    // 説明文中の @azumagbanjo もTwitchチャネルへのリンクにする
+    expect(body).toContain(
+      '<a href="https://www.twitch.tv/azumagbanjo" target="_blank" rel="noopener noreferrer">@azumagbanjo</a>',
+    );
     expect(body).toContain('rel="noopener noreferrer"');
     expect(body).toContain("(なし)");
   });

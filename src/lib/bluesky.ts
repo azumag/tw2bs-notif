@@ -1,5 +1,6 @@
 import type { AppEnv } from "../types";
 import { getBskyDidForUser } from "./bsky-oauth";
+import { detectFacets } from "./facets";
 
 /**
  * Bluesky 書き込み(ユーザー別 OAuth セッション経由)。
@@ -162,6 +163,10 @@ export async function createStreamPost(
   session: BskySessionLike,
   input: { uri: string; title?: string; description?: string; text?: string },
 ): Promise<void> {
+  const text =
+    input.text ?? `配信開始しました${input.title ? `: ${input.title}` : ""}`;
+  // URLやハッシュタグは facets を付けないとリンクにならない
+  const facets = detectFacets(text);
   await xrpc(session, "/xrpc/com.atproto.repo.createRecord", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -170,7 +175,8 @@ export async function createStreamPost(
       collection: "app.bsky.feed.post",
       record: {
         $type: "app.bsky.feed.post",
-        text: input.text ?? `配信開始しました${input.title ? `: ${input.title}` : ""}`,
+        text,
+        ...(facets.length ? { facets } : {}),
         createdAt: new Date().toISOString(),
         langs: ["ja"],
         embed: {

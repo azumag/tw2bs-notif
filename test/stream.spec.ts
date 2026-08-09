@@ -26,6 +26,7 @@ vi.mock("../src/lib/bluesky", () => ({
 }));
 vi.mock("../src/lib/twitch", () => ({
   getStreamStatesBatch: vi.fn(async () => new Map()),
+  getChannelInformation: vi.fn(async () => null),
 }));
 
 function makeEnv(): AppEnv {
@@ -106,6 +107,8 @@ beforeEach(async () => {
   vi.mocked(twitchModule.getStreamStatesBatch).mockResolvedValue(
     new Map() as never,
   );
+  vi.mocked(twitchModule.getChannelInformation).mockReset();
+  vi.mocked(twitchModule.getChannelInformation).mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -218,6 +221,46 @@ describe("processStreamEvent", () => {
         text: "あずまぐ 配信中\nテスト配信\nMusic\nhttps://www.twitch.tv/cool_user",
       }),
     );
+  });
+
+  it("配信開始直後で /streams が未反映でもチャネル情報でタイトル・カテゴリを補う", async () => {
+    // stream.online 直後、Helix /streams はまだこの配信を返さない
+    mockStreamStates(new Map());
+    vi.mocked(twitchModule.getChannelInformation).mockResolvedValue({
+      title: "週末の雑談配信",
+      gameName: "Just Chatting",
+    } as never);
+    await env.DB.prepare(
+      `UPDATE connections
+       SET post_template = '{title} #twitch\n{category}'
+       WHERE user_id = 'user-1' AND twitch_channel_id = '12345'`,
+    ).run();
+    const e = makeEnv() as AppEnv & { BSKY_POST_ON_START?: string };
+    e.BSKY_POST_ON_START = "true";
+
+    await processStreamEvent(e, onlineEvent);
+
+    expect(blueskyModule.createStreamPost).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        text: "週末の雑談配信 #twitch\nJust Chatting",
+      }),
+    );
+    // 配信中ステータスの埋め込みタイトルにも反映する
+    expect(blueskyModule.setLiveStatus).toHaveBeenCalledWith(expect.anything(), {
+      uri: "https://www.twitch.tv/cool_user",
+      title: "週末の雑談配信",
+    });
+  });
+
+  it("/streams が返す情報があればチャネル情報は取りに行かない", async () => {
+    mockStreamStates(new Map([["12345", streamState]]));
+    const e = makeEnv() as AppEnv & { BSKY_POST_ON_START?: string };
+    e.BSKY_POST_ON_START = "true";
+
+    await processStreamEvent(e, onlineEvent);
+
+    expect(twitchModule.getChannelInformation).not.toHaveBeenCalled();
   });
 
   it("does not create a stream post when the flag is off", async () => {
