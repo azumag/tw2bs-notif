@@ -23,7 +23,24 @@ describe("tw2bs-notif worker", () => {
   it("responds with the login page on GET /", async () => {
     const response = await exports.default.fetch("https://example.com/");
     expect(response.status).toBe(200);
-    expect(await response.text()).toContain("Twitchでログイン");
+    const body = await response.text();
+    expect(body).toContain("Twitchでログイン");
+    expect(body).toContain('href="/guide"');
+  });
+
+  it("ログイン前でも機能概要・使い方ページを読める", async () => {
+    const response = await exports.default.fetch("https://example.com/guide");
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain("orbsky の機能概要・使い方");
+    expect(body).toContain("orbskyでできること");
+    expect(body).toContain("Twitchでログイン");
+    expect(body).toContain("Blueskyアカウントを連携");
+    expect(body).toContain("自動ポスト本文のカスタマイズ");
+    expect(body).toContain("{title}");
+    expect(body).toContain("無料利用と特典");
+    expect(body).toContain("twica");
+    expect(body).toContain('href="https://twica.bluemoon.works/plans"');
   });
 
   it("can read and write KV values", async () => {

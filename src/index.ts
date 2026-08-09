@@ -59,6 +59,7 @@ import {
 const LOGIN_PATH = "/auth/twitch/login";
 const CALLBACK_PATH = "/auth/twitch/callback";
 const LOGOUT_PATH = "/auth/logout";
+const GUIDE_PATH = "/guide";
 const CHANNELS_PATH = "/channels";
 const CHANNELS_CONNECT_PATH = "/channels/connect";
 const CHANNELS_ADD_PATH = "/channels/add";
@@ -114,12 +115,16 @@ function renderIndex(
   if (!session) {
     return htmlPage(
       "orbsky",
-      `<h1>orbsky</h1><p><a href="${LOGIN_PATH}">Twitchでログイン</a></p>`,
+      `<h1>orbsky</h1>
+       <p>Twitchの配信開始・終了をBlueskyへ自動で反映します。</p>
+       <p><a href="${LOGIN_PATH}">Twitchでログイン</a></p>
+       <p><a href="${GUIDE_PATH}">機能概要・使い方を見る</a></p>`,
     );
   }
   return htmlPage(
     "orbsky",
     `<h1>orbsky</h1><p>ログイン中: ${escapeHtml(session.twitchUserId)}</p>
+     <p><a href="${GUIDE_PATH}">機能概要・使い方</a></p>
      <p><a href="${CHANNELS_PATH}">チャンネル連携の管理</a></p>
      <p><a href="${SUPPORT_PATH}">特典(サポートコード)</a></p>
      <p><a href="${SETTINGS_PATH}">Bluesky連携・自動ポストの設定</a></p>
@@ -127,6 +132,94 @@ function renderIndex(
        <input type="hidden" name="csrf" value="${session.csrf}">
        <button type="submit">ログアウト</button>
      </form>`,
+  );
+}
+
+function renderGuide(
+  session: { twitchUserId: string; csrf: string } | null,
+): Response {
+  const startAction = session
+    ? `<p><a href="${SETTINGS_PATH}">Bluesky連携を設定する</a></p>
+       <p><a href="${CHANNELS_PATH}">チャンネル連携・自動ポストを設定する</a></p>`
+    : `<p><a href="${LOGIN_PATH}">Twitchでログインして始める</a></p>`;
+
+  return htmlPage(
+    "orbsky - 機能概要・使い方",
+    `<h1>orbsky の機能概要・使い方</h1>
+     <p>Twitchで配信を始めたときに、Blueskyのプロフィールへ配信中ステータスを表示し、必要に応じてお知らせを自動投稿するサービスです。</p>
+     <p><a href="/">← トップへ戻る</a></p>
+
+     <h2>orbskyでできること</h2>
+     <ul>
+       <li>Twitchの配信開始を検知し、Blueskyへ配信中バッジとTwitchリンクカードを表示します。</li>
+       <li>配信終了を検知すると、配信中バッジを自動で解除します。</li>
+       <li>配信開始時にBlueskyへ通常のポストを作成するか、チャンネルごとに選べます。</li>
+       <li>ポスト本文、配信タイトル、カテゴリの表示方法をチャンネルごとにカスタマイズできます。</li>
+       <li>特典を有効化すると、複数のTwitchチャンネルを1つのBlueskyアカウントへ連携できます。</li>
+     </ul>
+
+     <h2>使い方</h2>
+     <ol>
+       <li>
+         <h3>1. Twitchでログイン</h3>
+         <p>Twitchアカウントでorbskyへログインします。自分のチャンネル以外を追加する場合も、最初に管理用のTwitchアカウントでログインしてください。</p>
+       </li>
+       <li>
+         <h3>2. Blueskyアカウントを連携</h3>
+         <p><a href="${SETTINGS_PATH}">設定</a>から「Blueskyと連携」を選び、配信中バッジと自動ポストを反映するBlueskyアカウントを選択します。</p>
+       </li>
+       <li>
+         <h3>3. Twitchチャンネルを連携</h3>
+         <p><a href="${CHANNELS_PATH}">チャンネル連携</a>で「自分のチャンネルを連携する」を選びます。連携後は、ページを開いたままにする必要はありません。</p>
+       </li>
+       <li>
+         <h3>4. 自動ポストを設定</h3>
+         <p>連携済みチャンネルごとに、自動ポストのON/OFF、本文フォーマット、配信タイトルとカテゴリを本文へ含めるかを設定して保存します。</p>
+       </li>
+       <li>
+         <h3>5. 配信する</h3>
+         <p>通常どおりTwitchで配信を開始します。orbskyが開始・終了を検知してBlueskyへ反映します。</p>
+       </li>
+     </ol>
+
+     <h2>自動ポスト本文のカスタマイズ</h2>
+     <p>本文フォーマットでは、次の変数を好きな位置に配置できます。</p>
+     <table>
+       <thead><tr><th>変数</th><th>投稿時に入る内容</th></tr></thead>
+       <tbody>
+         <tr><td><code>{title}</code></td><td>現在の配信タイトル</td></tr>
+         <tr><td><code>{category}</code></td><td>現在のTwitchカテゴリ</td></tr>
+         <tr><td><code>{channel}</code></td><td>連携したチャンネル名</td></tr>
+         <tr><td><code>{url}</code></td><td>連携したTwitchチャンネルのURL</td></tr>
+       </tbody>
+     </table>
+     <p>例:</p>
+     <pre><code>🔴 {channel} が配信を始めました
+{title}
+カテゴリ: {category}
+{url}</code></pre>
+     <p>「配信タイトルをポスト本文に含める」「カテゴリをポスト本文に含める」のチェックを外すと、対応する変数は空になります。</p>
+
+     <h2>無料利用と特典</h2>
+     <table>
+       <thead><tr><th>利用状態</th><th>連携できるTwitchチャンネル</th><th>自動ポスト設定</th></tr></thead>
+       <tbody>
+         <tr><td>無料</td><td>1チャンネル</td><td>利用可能</td></tr>
+         <tr><td>サポート特典</td><td>複数チャンネル</td><td>各チャンネルで利用可能</td></tr>
+       </tbody>
+     </table>
+     <p>複数チャンネル連携は、<a href="${SUPPORT_PATH}">特典ページ</a>でFANBOXサポートコードまたはTwitchサブスク特典を有効化すると利用できます。</p>
+     <p>サポートコードは、別サービス <a href="${TWICA_URL}" target="_blank" rel="noopener noreferrer">twica</a> と同一のものをご利用いただけます。</p>
+
+     <h2>知っておきたいこと</h2>
+     <ul>
+       <li>自動ポストをOFFにしても、Blueskyの配信中バッジは反映されます。</li>
+       <li>Blueskyが未連携の場合、配信中バッジと自動ポストは反映されません。</li>
+       <li>設定はチャンネルごとに保存されるため、複数チャンネルで別々の本文を使えます。</li>
+     </ul>
+
+     <h2>orbskyを始める</h2>
+     ${startAction}`,
   );
 }
 
@@ -831,6 +924,10 @@ export default {
     }
     if (url.pathname === LOGOUT_PATH && request.method === "POST") {
       return handleLogout(request, env);
+    }
+    if (url.pathname === GUIDE_PATH && request.method === "GET") {
+      const session = await getSession(env, request);
+      return renderGuide(session);
     }
     if (url.pathname === CHANNELS_PATH && request.method === "GET") {
       return handleChannels(request, env);
