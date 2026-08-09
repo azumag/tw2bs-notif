@@ -276,7 +276,7 @@ describe("サポートページ(HTTP)", () => {
     // 有料機能ではなく返礼の特典であること、制限理由を明示する
     expect(body).toContain("これは有料機能ではありません");
     expect(body).toContain("返礼としての特典");
-    expect(body).toContain("なぜチャネル数を制限しているのか");
+    expect(body).toContain("チャネル数制限について");
     expect(body).toContain("サーバー負荷");
     expect(body).toContain("サポートコードで有効化");
     expect(body).toContain("Twitchサブスクで有効化");
