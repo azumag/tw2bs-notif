@@ -7,6 +7,8 @@ export type PageOptions = {
   session?: PageSession | null;
   mainClass?: string;
   bodyClass?: string;
+  /** Current request path, used to mark the matching header nav link with aria-current. */
+  currentPath?: string;
 };
 
 const THEME_BOOTSTRAP = `(() => {
@@ -39,6 +41,28 @@ const PAGE_SCRIPT = `(() => {
     root.style.colorScheme = next;
     try { localStorage.setItem("orbsky-theme", next); } catch {}
     syncThemeButton();
+  });
+
+  const navToggle = document.querySelector("[data-nav-toggle]");
+  const nav = document.querySelector("[data-nav]");
+  const navToggleLabel = navToggle?.querySelector("[data-nav-toggle-label]");
+  const setNavOpen = (open) => {
+    if (!(nav instanceof HTMLElement) || !(navToggle instanceof HTMLElement)) return;
+    nav.classList.toggle("is-open", open);
+    navToggle.setAttribute("aria-expanded", String(open));
+    if (navToggleLabel) navToggleLabel.textContent = open ? "閉じる" : "メニュー";
+  };
+  navToggle?.addEventListener("click", () => {
+    setNavOpen(!nav?.classList.contains("is-open"));
+  });
+  nav?.addEventListener("click", (event) => {
+    if (event.target instanceof HTMLAnchorElement) setNavOpen(false);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event instanceof KeyboardEvent && event.key === "Escape") setNavOpen(false);
+  });
+  matchMedia("(min-width: 701px)").addEventListener("change", (event) => {
+    if (event.matches) setNavOpen(false);
   });
 
   const tabs = Array.from(document.querySelectorAll("[data-channel-tab]"));
@@ -336,6 +360,7 @@ pre code { padding: 0; background: transparent; }
 }
 
 .header-inner {
+  position: relative;
   display: flex;
   width: min(100% - 40px, 1180px);
   min-height: 64px;
@@ -373,6 +398,11 @@ pre code { padding: 0; background: transparent; }
 
 .header-nav > a:hover { background: var(--surface-soft); color: var(--text); }
 
+.header-nav > a[aria-current="page"] {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
 .theme-toggle {
   min-height: 38px;
   border-color: var(--border-strong);
@@ -384,14 +414,7 @@ pre code { padding: 0; background: transparent; }
 
 .theme-toggle:hover { border-color: var(--primary); background: var(--primary-soft); color: var(--primary); }
 
-.account-chip {
-  border-left: 1px solid var(--border);
-  color: var(--muted);
-  margin-left: 0.35rem;
-  padding-left: 0.9rem;
-  font-size: 0.86rem;
-  white-space: nowrap;
-}
+.nav-toggle { display: none; }
 
 .page-shell {
   width: min(100% - 48px, 1180px);
@@ -560,15 +583,6 @@ pre code { padding: 0; background: transparent; }
 .channel-tab strong, .channel-tab small { display: block; }
 .channel-tab strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .channel-tab small { color: var(--muted); font-weight: 500; }
-
-.empty-state {
-  border: 1px dashed var(--border-strong);
-  border-radius: 14px;
-  background: var(--surface-soft);
-  color: var(--muted-strong);
-  padding: 2rem;
-  text-align: center;
-}
 
 .channel-workspace {
   display: grid;
@@ -804,6 +818,25 @@ pre code { padding: 0; background: transparent; }
   font-weight: 700;
 }
 
+.message-card p { margin: 0 0 0.85rem; color: var(--text); }
+.message-card p:last-child { margin-bottom: 0; }
+.message-card .action-row { margin-top: 1.1rem; }
+
+.message-card.is-error {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+  background: var(--danger-soft);
+}
+
+.message-card.is-success {
+  border-color: color-mix(in srgb, var(--success) 30%, var(--border));
+  background: var(--success-soft);
+}
+
+.message-card.is-info {
+  border-color: color-mix(in srgb, var(--sky) 25%, var(--border));
+  background: var(--sky-soft);
+}
+
 .content-section {
   border-top: 1px solid var(--border);
   margin-top: 2.5rem;
@@ -859,7 +892,7 @@ pre code { padding: 0; background: transparent; }
 }
 
 .hero-kicker { color: var(--primary); font-size: 0.85rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
-.hero h1 { max-width: 760px; margin: 0.55rem 0 1rem; color: var(--text-strong); font-size: clamp(2.6rem, 6vw, 5.5rem); line-height: 1.05; letter-spacing: -0.06em; }
+.hero h1 { max-width: 640px; margin: 0.55rem 0 1rem; color: var(--text-strong); font-size: clamp(2.1rem, 4vw, 3.4rem); line-height: 1.15; letter-spacing: -0.03em; }
 .hero-lead { max-width: 660px; color: var(--muted-strong); font-size: clamp(1rem, 1.6vw, 1.25rem); }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.75rem; }
 
@@ -1070,10 +1103,29 @@ tr:last-child td { border-bottom: 0; }
 }
 
 @media (max-width: 700px) {
-  .header-inner { min-height: 64px; gap: 0.75rem; }
-  .header-nav { gap: 0.1rem; }
-  .header-nav > a { display: none; }
-  .account-chip { display: none; }
+  .header-inner { min-height: 60px; gap: 0.75rem; }
+  .nav-toggle { display: inline-flex; }
+  .header-nav {
+    display: none;
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 8px);
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.15rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+    padding: 0.5rem;
+  }
+  .header-nav.is-open { display: flex; }
+  .header-nav > a { padding: 0.75rem 0.8rem; }
+  /* The dropdown has room for every link, so undo the >980px tablet trim. */
+  .header-nav > a.hide-tablet { display: block; }
+  .header-nav .theme-toggle { align-self: stretch; justify-content: flex-start; margin-top: 0.15rem; }
   .page-shell { padding-top: 1.5rem; }
   .footer-inner { align-items: flex-start; flex-direction: column; justify-content: center; padding: 1rem 0; }
   .progress-strip { grid-template-columns: 1fr; }
@@ -1092,7 +1144,6 @@ tr:last-child td { border-bottom: 0; }
   .next-action, .support-code-form { align-items: stretch; flex-direction: column; }
   .next-action .button, .support-code-form button { width: 100%; }
   .dashboard-footer { align-items: flex-start; flex-direction: column; }
-  .hero h1 { font-size: clamp(2.45rem, 14vw, 4rem); }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1115,14 +1166,20 @@ export function renderHtmlPage(
   options: PageOptions = {},
 ): string {
   const session = options.session ?? null;
+  const currentPath = options.currentPath ?? "";
   const mainClass = options.mainClass ? ` ${escapeAttribute(options.mainClass)}` : "";
   const bodyClass = options.bodyClass
     ? ` class="${escapeAttribute(options.bodyClass)}"`
     : "";
+  const navLink = (href: string, label: string, extraClass = ""): string => {
+    const classAttr = extraClass ? ` class="${extraClass}"` : "";
+    const currentAttr = currentPath === href ? ' aria-current="page"' : "";
+    return `<a${classAttr} href="${href}"${currentAttr}>${label}</a>`;
+  };
   const authenticatedNav = session
-    ? `<a href="/channels">投稿設定</a>
-       <a href="/settings">Bluesky</a>
-       <a href="/support">特典</a>`
+    ? `${navLink("/channels", "投稿設定")}
+       ${navLink("/settings", "Bluesky")}
+       ${navLink("/support", "特典")}`
     : "";
 
   return `<!DOCTYPE html>
@@ -1139,9 +1196,12 @@ export function renderHtmlPage(
   <header class="site-header">
     <div class="header-inner">
       <a class="brand" href="/" aria-label="orbsky トップ">orbsky</a>
-      <nav class="header-nav" aria-label="メインナビゲーション">
+      <button class="theme-toggle nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="site-nav">
+        <span data-nav-toggle-label>メニュー</span>
+      </button>
+      <nav class="header-nav" id="site-nav" aria-label="メインナビゲーション" data-nav>
         ${authenticatedNav}
-        ${session ? "" : '<a class="hide-tablet" href="/guide">使い方</a>'}
+        ${session ? "" : navLink("/guide", "使い方", "hide-tablet")}
         <button class="theme-toggle" type="button" data-theme-toggle aria-label="表示テーマを切り替える">テーマ</button>
       </nav>
     </div>

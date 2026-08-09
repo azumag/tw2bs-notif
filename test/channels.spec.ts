@@ -183,7 +183,7 @@ describe("チャンネル連携ページ", () => {
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain("チャンネル連携");
-    expect(body).toContain("(なし)");
+    expect(body).toContain("自分のチャンネルを連携する");
     expect(body).toContain("/channels/connect");
     expect(body).toContain("マルチチャンネル設定");
     expect(body).toContain("特典を有効化する");
@@ -722,7 +722,7 @@ describe("チャンネル連携ページ", () => {
         body: new URLSearchParams({ csrf }),
       }),
     );
-    expect(await res.text()).toContain("無料プランでは1つまで");
+    expect(await res.text()).toContain("無料利用では1つまで");
 
     const { results } = await env0.DB.prepare(
       "SELECT COUNT(*) AS c FROM connections",
