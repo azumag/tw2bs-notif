@@ -182,7 +182,7 @@ describe("getAppAccessToken", () => {
 });
 
 describe("fetchTwitchUserByLogin", () => {
-  it("app access tokenでloginを検索してチャンネル情報を返す", async () => {
+  it("app access tokenでloginを検索してチャネル情報を返す", async () => {
     const fetchMock = mockFetch({
       "oauth2/token": async () => jsonResponse(tokenResponse),
       "helix/users?login=azumagsandbox": async (url, init) => {

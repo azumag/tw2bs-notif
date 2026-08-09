@@ -160,7 +160,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-describe("チャンネル連携ページ", () => {
+describe("チャネル連携ページ", () => {
   it("未ログインは / へリダイレクト", async () => {
     const res = await fetchAs(
       makeEnv(),
@@ -173,6 +173,11 @@ describe("チャンネル連携ページ", () => {
   it("ログイン済みは連携一覧を表示する", async () => {
     const env0 = makeEnv();
     const { cookie } = await loginAs(env0);
+    await env0.DB.prepare(
+      `INSERT INTO connections
+         (user_id, twitch_channel_id, twitch_login, twitch_display_name)
+       VALUES ('12345', '12345', 'azumagbanjo', 'あずまぐ')`,
+    ).run();
 
     const res = await fetchAs(
       env0,
@@ -182,15 +187,30 @@ describe("チャンネル連携ページ", () => {
     );
     expect(res.status).toBe(200);
     const body = await res.text();
-    expect(body).toContain("チャンネル連携");
-    expect(body).toContain("自分のチャンネルを連携する");
-    expect(body).toContain("/channels/connect");
-    expect(body).toContain("マルチチャンネル設定");
-    expect(body).toContain("特典を有効化する");
+    expect(body).toContain("チャネル連携");
+    expect(body).not.toContain("自分のチャネルを連携する");
+    expect(body).toContain("マルチチャネル");
+    expect(body).toContain("複数のチャネルからの通知を受け取るには");
     expect(body).not.toContain('name="channel_login"');
   });
 
-  it("特典ユーザーにはマルチチャンネル追加フォームを表示する", async () => {
+  it("自分のチャネルが未連携なら再連携カードを表示する", async () => {
+    const env0 = makeEnv();
+    const { cookie } = await loginAs(env0);
+
+    const res = await fetchAs(
+      env0,
+      new Request("https://example.com/channels", {
+        headers: { Cookie: cookie },
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain("自分のチャネルを連携し直す");
+    expect(body).toContain('action="/channels/connect"');
+  });
+
+  it("特典ユーザーにはマルチチャネル追加フォームを表示する", async () => {
     const env0 = makeEnv();
     const { cookie } = await loginAs(env0);
     await grantSupportEntitlement(env0);
@@ -206,11 +226,11 @@ describe("チャンネル連携ページ", () => {
     expect(body).toContain('action="/channels/add"');
     expect(body).toContain('name="channel_login"');
     expect(body).toContain("例: azumagsandbox");
-    expect(body).toContain("チャンネルを追加");
+    expect(body).toContain("チャネルを追加");
     expect(body).not.toContain("特典を有効化する");
   });
 
-  it("連携チャンネルごとの自動ポスト設定を表示する", async () => {
+  it("連携チャネルごとの自動ポスト設定を表示する", async () => {
     const env0 = makeEnv();
     const { cookie } = await loginAs(env0);
     await env0.DB.prepare(
@@ -248,7 +268,7 @@ describe("チャンネル連携ページ", () => {
     expect(body).not.toContain("include_category");
   });
 
-  it("複数チャンネルのときだけチャンネル選択タブを表示する", async () => {
+  it("複数チャネルのときだけチャネル選択タブを表示する", async () => {
     const env0 = makeEnv();
     const { cookie } = await loginAs(env0);
     await env0.DB.prepare(
@@ -266,13 +286,13 @@ describe("チャンネル連携ページ", () => {
     );
     const body = await res.text();
 
-    expect(body).toContain("編集するチャンネル");
+    expect(body).toContain("編集するチャネル");
     expect(body).toContain('role="tablist"');
     expect(body).toContain('class="channel-tab');
     expect(body).toContain("azumagsandbox");
   });
 
-  it("無料ユーザーでもチャンネル別の投稿本文設定を保存できる", async () => {
+  it("無料ユーザーでもチャネル別の投稿本文設定を保存できる", async () => {
     const env0 = makeEnv();
     const { cookie, csrf } = await loginAs(env0);
     const inserted = await env0.DB.prepare(
@@ -318,7 +338,7 @@ describe("チャンネル連携ページ", () => {
     expect(await saved.text()).toContain("自動ポスト設定を保存しました");
   });
 
-  it("チャンネル別の自動ポストをOFFにできる", async () => {
+  it("チャネル別の自動ポストをOFFにできる", async () => {
     const env0 = makeEnv();
     const { cookie, csrf } = await loginAs(env0);
     const inserted = await env0.DB.prepare(
@@ -350,13 +370,13 @@ describe("チャンネル連携ページ", () => {
     expect(row?.enabled).toBe(0);
   });
 
-  it("CSRF不一致と他ユーザーのチャンネル更新を拒否する", async () => {
+  it("CSRF不一致と他ユーザーのチャネル更新を拒否する", async () => {
     const env0 = makeEnv();
     const { cookie, csrf } = await loginAs(env0);
     const inserted = await env0.DB.prepare(
       `INSERT INTO connections
          (user_id, twitch_channel_id, twitch_login, twitch_display_name)
-       VALUES ('other-user', '99999', 'other_channel', '別チャンネル')`,
+       VALUES ('other-user', '99999', 'other_channel', '別チャネル')`,
     ).run();
     const connectionId = Number(inserted.meta.last_row_id);
     const requestBody = {
@@ -382,7 +402,7 @@ describe("チャンネル連携ページ", () => {
         body: new URLSearchParams({ csrf, ...requestBody }),
       }),
     );
-    expect(await ownerRejected.text()).toContain("チャンネル設定を保存できません");
+    expect(await ownerRejected.text()).toContain("チャネル設定を保存できません");
 
     const row = await env0.DB.prepare(
       "SELECT post_template AS postTemplate FROM connections WHERE id = ?",
@@ -416,7 +436,7 @@ describe("チャンネル連携ページ", () => {
     expect(await update.text()).toContain("使用できない変数です");
   });
 
-  it("自分のチャンネルを連携すると一覧に表示され購読が作られる", async () => {
+  it("自分のチャネルを連携すると一覧に表示され購読が作られる", async () => {
     let createCount = 0;
     mockFetch({
       "api.twitch.tv/helix/users": async () => jsonResponse(usersResponse),
@@ -680,7 +700,7 @@ describe("チャンネル連携ページ", () => {
     expect(await res.text()).toContain("無効なリクエスト");
   });
 
-  it("無料ユーザーは2チャンネル目を連携できない(特典ゲート)", async () => {
+  it("自分のチャネル連携は特典の有無に関わらず成功する", async () => {
     mockFetch({
       "api.twitch.tv/helix/users": async () => jsonResponse(usersResponse),
       "id.twitch.tv/oauth2/token": async () =>
@@ -690,18 +710,26 @@ describe("チャンネル連携ページ", () => {
           token_type: "bearer",
           scope: [],
         }),
-      "eventsub/subscriptions": async () => jsonResponse({ data: [] }),
+      "eventsub/subscriptions": async (url, init) => {
+        if (init?.method === "POST") {
+          const body = JSON.parse(String(init?.body));
+          return jsonResponse({
+            data: [{ id: "sub-1", ...subscriptionBase, type: body.type, condition: body.condition }],
+          });
+        }
+        return jsonResponse({ data: [] });
+      },
     });
     const env0 = makeEnv();
     const { cookie, csrf } = await loginAs(env0);
 
-    // 1件目の連携を作成
+    // 1件目(別チャネル)を先に連携しておく
     await env0.DB.prepare(
       `INSERT INTO connections (user_id, twitch_channel_id, twitch_login, twitch_display_name)
-       VALUES ('12345', '99999', 'other', '別チャンネル')`,
+       VALUES ('12345', '99999', 'other', '別チャネル')`,
     ).run();
 
-    // 2件目(自分のチャンネル)を連携しようとする → 拒否
+    // 特典を持たない無料ユーザーでも、自分自身のチャネル連携は成功する
     const res = await fetchAs(
       env0,
       new Request("https://example.com/channels/connect", {
@@ -710,15 +738,15 @@ describe("チャンネル連携ページ", () => {
         body: new URLSearchParams({ csrf }),
       }),
     );
-    expect(await res.text()).toContain("無料利用では1つまで");
+    expect(res.status).toBe(302);
 
     const { results } = await env0.DB.prepare(
       "SELECT COUNT(*) AS c FROM connections",
     ).all<{ c: number }>();
-    expect(results[0].c).toBe(1);
+    expect(results[0].c).toBe(2);
   });
 
-  it("特典(Fanboxコード)ユーザーは複数チャンネルを連携できる", async () => {
+  it("特典(Fanboxコード)ユーザーは複数チャネルを連携できる", async () => {
     let createCount = 0;
     mockFetch({
       "api.twitch.tv/helix/users": async () => jsonResponse(usersResponse),
@@ -761,10 +789,10 @@ describe("チャンネル連携ページ", () => {
     const { activateCode } = await import("../src/lib/support");
     await activateCode(env0, "12345", "GATE-CODE");
 
-    // 1件目 + 2件目(自分のチャンネル)を連携 → 両方成功
+    // 1件目 + 2件目(自分のチャネル)を連携 → 両方成功
     await env0.DB.prepare(
       `INSERT INTO connections (user_id, twitch_channel_id, twitch_login, twitch_display_name)
-       VALUES ('12345', '99999', 'other', '別チャンネル')`,
+       VALUES ('12345', '99999', 'other', '別チャネル')`,
     ).run();
 
     const res = await fetchAs(
@@ -783,7 +811,7 @@ describe("チャンネル連携ページ", () => {
     expect(results[0].c).toBe(2);
   });
 
-  it("特典ユーザーはTwitchユーザー名で別チャンネルを追加できる", async () => {
+  it("特典ユーザーはTwitchユーザー名で別チャネルを追加できる", async () => {
     let createCount = 0;
     mockFetch({
       "id.twitch.tv/oauth2/token": async () =>
@@ -867,7 +895,7 @@ describe("チャンネル連携ページ", () => {
     expect(createCount).toBe(2);
   });
 
-  it("無料ユーザーはチャンネル追加POSTを直接送っても拒否される", async () => {
+  it("無料ユーザーはチャネル追加POSTを直接送っても拒否される", async () => {
     const env0 = makeEnv();
     const { cookie, csrf } = await loginAs(env0);
     await env0.DB.prepare(
@@ -887,7 +915,7 @@ describe("チャンネル連携ページ", () => {
       }),
     );
 
-    expect(await res.text()).toContain("特典の有効化が必要");
+    expect(await res.text()).toContain("マルチチャネルの有効化が必要");
     expect(fetchMock).not.toHaveBeenCalled();
     const count = await env0.DB.prepare(
       "SELECT COUNT(*) AS count FROM connections",
@@ -920,7 +948,7 @@ describe("チャンネル連携ページ", () => {
       }),
     );
 
-    expect(await res.text()).toContain("Twitchチャンネルが見つかりません");
+    expect(await res.text()).toContain("Twitchチャネルが見つかりません");
     const count = await env0.DB.prepare(
       "SELECT COUNT(*) AS count FROM connections",
     ).first<{ count: number }>();

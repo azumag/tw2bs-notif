@@ -127,7 +127,7 @@ export interface TwitchChannelInfo {
   profileImageUrl: string | null;
 }
 
-/** app access token で公開Twitchチャンネルをログイン名から取得する。 */
+/** app access token で公開Twitchチャネルをログイン名から取得する。 */
 export async function fetchTwitchUserByLogin(
   env: AppEnv,
   login: string,
@@ -168,8 +168,8 @@ export async function getStreamState(
 }
 
 /**
- * 複数チャンネルの配信状態をバッチ取得する(100チャンネル/リクエスト)。
- * 配信していないチャンネルは null。
+ * 複数チャネルの配信状態をバッチ取得する(100チャネル/リクエスト)。
+ * 配信していないチャネルは null。
  */
 export async function getStreamStatesBatch(
   env: AppEnv,
@@ -274,7 +274,7 @@ export async function deleteSubscription(
 }
 
 /**
- * チャンネルに stream.online / stream.offline の購読を確保する。
+ * チャネルに stream.online / stream.offline の購読を確保する。
  * 同一 type+condition の購読が存在すれば(ステータスを問わず)スキップする。
  * Twitch は同一条件の購読がどのステータスでも存在すると 409 を返すため。
  */
@@ -310,7 +310,7 @@ export async function ensureChannelSubscriptions(
 }
 
 /**
- * チャンネルに対する購読を全て削除する。
+ * チャネルに対する購読を全て削除する。
  */
 export async function removeChannelSubscriptions(
   env: AppEnv,

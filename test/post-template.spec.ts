@@ -26,7 +26,7 @@ describe("post template", () => {
     );
   });
 
-  it("チャンネル名とURLを使った自由なフォーマットを作れる", () => {
+  it("チャネル名とURLを使った自由なフォーマットを作れる", () => {
     expect(formatStreamPostText("{channel} is live!\n{url}", context)).toBe(
       "あずまぐ is live!\nhttps://www.twitch.tv/azumagbanjo",
     );

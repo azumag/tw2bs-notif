@@ -42,7 +42,7 @@ describe("tw2bs-notif worker", () => {
     expect(body).toContain("Blueskyアカウントを連携");
     expect(body).toContain("自動ポスト本文のカスタマイズ");
     expect(body).toContain("{title}");
-    expect(body).toContain("無料利用と特典");
+    expect(body).toContain("無料利用とマルチチャネル機能");
     expect(body).toContain("twica");
     expect(body).toContain('href="https://twica.bluemoon.works/plans"');
     expect(body).toContain('href="/privacy"');
@@ -61,6 +61,19 @@ describe("tw2bs-notif worker", () => {
     expect(body).toContain("https://legal.twitch.com/legal/privacy-notice/");
     expect(body).toContain("https://bsky.social/about/support/privacy-policy");
     expect(body).toContain("https://www.cloudflare.com/privacypolicy/");
+  });
+
+  it("ログイン前でも運営者情報ページを読める", async () => {
+    const response = await exports.default.fetch("https://example.com/about");
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain("運営者情報");
+    expect(body).toContain("azumag");
+    expect(body).toContain("https://x.com/azumag");
+    expect(body).toContain("https://bsky.app/profile/azumag.bsky.social");
+    expect(body).toContain("https://www.twitch.tv/azumagbanjo");
+    expect(body).toContain("https://github.com/azumag");
+    expect(body).toContain('href="https://azumag.fanbox.cc/"');
   });
 
   it("can read and write KV values", async () => {

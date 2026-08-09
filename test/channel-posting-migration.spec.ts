@@ -15,7 +15,7 @@ describe("0007_channel-posting migration", () => {
     await env.DB.prepare(
       `INSERT INTO connections
          (user_id, twitch_channel_id, twitch_login, twitch_display_name)
-       VALUES ('existing-user', 'channel-1', 'channel_one', 'チャンネル1')`,
+       VALUES ('existing-user', 'channel-1', 'channel_one', 'チャネル1')`,
     ).run();
 
     await applyD1Migrations(env.DB, migrations.slice(6) as D1Migration[]);

@@ -8,19 +8,20 @@ Twitch 配信開始を EventSub で検知し、Bluesky の streaming status(`app
 
 ## 機能
 
-- Twitch アカウントでログイン
-- 機能概要・使い方(/guide): ログイン前から、初期設定・自動ポスト変数・無料／特典の違いを確認可能
+- Twitch アカウントでログイン(ログイン時に自分自身のチャネルを自動連携)
+- 機能概要・使い方(/guide): ログイン前から、初期設定・自動ポスト変数・無料／マルチチャネルの違いを確認可能
 - プライバシーポリシー(/privacy): 取得情報、利用目的、保存期間、外部サービス、削除方法を公開
-- チャンネル連携(/channels): 自分のチャンネルを登録 → 配信開始/終了を Bluesky に反映
+- 運営者情報(/about): 運営者・連絡先・支援方法を公開
+- 投稿設定(/channels): 配信開始/終了を Bluesky に反映
   - 配信中バッジ + twitch.tv リンクカード(embed)
-  - 配信開始時の通常ポストは `/channels` でチャンネルごとにON/OFF可能(全プラン、デフォルトON)
-  - ポスト本文は `{title}` / `{category}` / `{channel}` / `{url}` を使ってチャンネルごとにカスタマイズ可能
+  - 配信開始時の通常ポストは `/channels` でチャネルごとにON/OFF可能(全プラン、連携直後はデフォルトOFF)
+  - ポスト本文は `{title}` / `{category}` / `{channel}` / `{url}` を使ってチャネルごとにカスタマイズ可能
   - `BSKY_POST_ON_START` は運用上の全体スイッチ
   - 4時間超の配信は cron(30分毎)が record を再書き込みして継続
-- 特典(/support): FANBOX サポートコード or Twitch サブスク(azumagbanjo)で複数チャンネル連携が解放
+- マルチチャネル有効化(/support): FANBOX サポートコード or Twitch サブスク(azumagbanjo)で複数チャネル連携が解放
   - サポートコードの取得先: [azumagのFANBOX](https://azumag.fanbox.cc/)
   - サポートコードは別サービス [twica](https://twica.bluemoon.works/plans) と共通
-  - 特典有効化後は `/channels` の「マルチチャンネル設定」から、管理している別チャンネルをTwitchユーザー名で追加
+  - 有効化後は `/channels` の「マルチチャネル」から、管理している別チャネルをTwitchユーザー名で追加
 
 ## 開発
 

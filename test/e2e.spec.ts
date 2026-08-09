@@ -177,7 +177,7 @@ beforeEach(async () => {
   await env.STATE.delete("stream:state:12345");
   await env.STATE.delete("twitch:token");
   await env.STATE.delete("bsky:session");
-  // チャンネル 12345 の連携を用意
+  // チャネル 12345 の連携を用意
   await env.DB.prepare("DELETE FROM connections").run();
   await env.DB.prepare(
     `INSERT INTO connections (user_id, twitch_channel_id, twitch_login, twitch_display_name)

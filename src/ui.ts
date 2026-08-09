@@ -69,7 +69,7 @@ const PAGE_SCRIPT = `(() => {
   const panels = Array.from(document.querySelectorAll("[data-channel-panel]"));
   const previewText = document.querySelector("[data-preview-text]");
   const previewChannel = document.querySelector("[data-preview-channel]");
-  const previewState = document.querySelector("[data-preview-state]");
+  const postPreview = document.querySelector("[data-post-preview]");
 
   const replaceAll = (value, token, replacement) => value.split(token).join(replacement);
   const updatePreview = (panel) => {
@@ -78,22 +78,24 @@ const PAGE_SCRIPT = `(() => {
     if (!(form instanceof HTMLFormElement)) return;
     const textarea = form.querySelector("[data-post-template]");
     const postOnStart = form.querySelector("[data-post-on-start]");
+    const postingFields = form.querySelector("[data-posting-fields]");
     if (!(textarea instanceof HTMLTextAreaElement)) return;
+
+    // OFFの間は、投稿文の編集欄とプレビューをたたんで隠す。
+    // ONにした瞬間にどちらも開く(まだ保存前でも見た目はすぐ反映)。
+    const enabled = postOnStart instanceof HTMLInputElement && postOnStart.checked;
+    if (postingFields instanceof HTMLElement) postingFields.hidden = !enabled;
+    if (postPreview instanceof HTMLElement) postPreview.hidden = !enabled;
 
     let rendered = textarea.value;
     rendered = replaceAll(rendered, "{title}", "週末の雑談配信");
     rendered = replaceAll(rendered, "{category}", "Just Chatting");
-    rendered = replaceAll(rendered, "{channel}", panel.dataset.channelDisplay || panel.dataset.channelLogin || "Twitchチャンネル");
+    rendered = replaceAll(rendered, "{channel}", panel.dataset.channelDisplay || panel.dataset.channelLogin || "Twitchチャネル");
     rendered = replaceAll(rendered, "{url}", "https://twitch.tv/" + (panel.dataset.channelLogin || "channel"));
     rendered = rendered.replace(/\\n{3,}/g, "\\n\\n").trim();
 
     if (previewText) previewText.textContent = rendered || "配信開始しました";
     if (previewChannel) previewChannel.textContent = "@" + (panel.dataset.channelLogin || "channel");
-    if (previewState) {
-      const enabled = postOnStart instanceof HTMLInputElement && postOnStart.checked;
-      previewState.textContent = enabled ? "配信開始時に投稿されます" : "自動ポストはオフです";
-      previewState.classList.toggle("is-off", !enabled);
-    }
   };
 
   const activatePanel = (panelId) => {
@@ -589,6 +591,11 @@ pre code { padding: 0; background: transparent; }
   align-items: start;
 }
 
+/* プレビューが(自動ポストOFFで)畳まれている間はエディタを全幅にする */
+.channel-workspace:has(.post-preview[hidden]) {
+  grid-template-columns: 1fr;
+}
+
 .channel-panel {
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -763,7 +770,6 @@ pre code { padding: 0; background: transparent; }
 .preview-text { min-height: 104px; margin: 0.85rem 0; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .preview-meta { border-top: 1px solid var(--border); color: var(--muted); padding-top: 0.75rem; font-size: 0.78rem; }
 .preview-state { border: 1px solid color-mix(in srgb, var(--sky) 25%, var(--border)); border-radius: 9px; background: var(--sky-soft); color: var(--sky); margin-top: 1rem; padding: 0.65rem 0.8rem; font-size: 0.82rem; font-weight: 650; }
-.preview-state.is-off { border-color: var(--border); background: var(--surface-soft); color: var(--muted); }
 
 .notice {
   border: 1px solid color-mix(in srgb, var(--success) 30%, var(--border));
@@ -826,16 +832,8 @@ pre code { padding: 0; background: transparent; }
 .management-disclosure > summary small,
 .support-subscription > summary small { color: var(--muted); font-weight: 450; }
 
-.management-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1.5rem;
-  padding: 1rem 0 0.25rem;
-}
-
-.management-grid section { border-left: 2px solid var(--border); padding-left: 1rem; }
-.management-grid h2 { margin: 0 0 0.35rem; color: var(--text-strong); font-size: 1rem; }
-.management-grid p { color: var(--muted-strong); font-size: 0.88rem; }
+.management-disclosure > p,
+.management-disclosure > .inline-form { margin-top: 0.5rem; }
 
 .inline-form { display: flex; max-width: 680px; align-items: end; gap: 0.75rem; }
 .inline-form .field { flex: 1; margin: 0; }
@@ -1097,7 +1095,6 @@ tr:last-child td { border-bottom: 0; }
   .switch-line { align-self: center; }
   .action-row { align-items: stretch; flex-direction: column; gap: 0.5rem; }
   .action-row > *, .action-row form, .action-row button { width: 100%; }
-  .management-grid { grid-template-columns: 1fr; }
   .next-action, .support-code-form { align-items: stretch; flex-direction: column; }
   .next-action .button, .support-code-form button { width: 100%; }
   .dashboard-footer { align-items: flex-start; flex-direction: column; }
@@ -1138,7 +1135,7 @@ export function renderHtmlPage(
   const authenticatedNav = session
     ? `${navLink("/channels", "投稿設定")}
        ${navLink("/settings", "Bluesky")}
-       ${navLink("/support", "特典")}`
+       ${navLink("/support", "マルチチャネル有効化")}`
     : "";
 
   return `<!DOCTYPE html>
@@ -1172,6 +1169,7 @@ export function renderHtmlPage(
       <nav class="footer-nav" aria-label="フッターナビゲーション">
         <a href="/">トップ</a>
         <a href="/guide">機能概要・使い方</a>
+        <a href="/about">運営者情報</a>
         <a href="/privacy">プライバシーポリシー</a>
       </nav>
     </div>

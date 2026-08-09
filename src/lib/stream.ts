@@ -42,7 +42,7 @@ export async function processStreamEvent(
   event: StreamEvent,
 ): Promise<void> {
   try {
-    // connections に登録されたチャンネルのイベントのみ処理する
+    // connections に登録されたチャネルのイベントのみ処理する
     if (!event.broadcasterUserId) {
       logInfo(C, "ignored missing broadcaster");
       return;
@@ -170,7 +170,7 @@ export async function refreshStreamStatus(env: AppEnv): Promise<void> {
     if (connections.length === 0) {
       return;
     }
-    // 全連携チャンネルの配信状態をバッチ取得(100チャンネル/リクエスト)
+    // 全連携チャネルの配信状態をバッチ取得(100チャネル/リクエスト)
     const states = await getStreamStatesBatch(
       env,
       connections.map((c) => c.twitchChannelId),
