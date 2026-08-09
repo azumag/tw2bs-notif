@@ -17,7 +17,7 @@ Twitch 配信開始を EventSub で検知し、Bluesky の streaming status(`app
   - 配信開始時の通常ポストは `/channels` でチャネルごとにON/OFF可能(全プラン、連携直後はデフォルトOFF)。トグルは切り替えた時点で保存される
   - ポスト本文は `{title}` / `{category}` / `{channel}` / `{url}` を使ってチャネルごとにカスタマイズ可能
   - `BSKY_POST_ON_START` は運用上の全体スイッチ
-  - 4時間超の配信は cron(30分毎)が record を再書き込みして継続
+  - 4時間超の配信は、配信ごとにキューの遅延メッセージ(約3〜3.5時間後)が record を再書き込みして継続。定期ポーリングは行わない
 - マルチチャネル有効化(/support): FANBOX サポートコード or Twitch サブスク(azumagbanjo)で複数チャネル連携が解放
   - サポートコードの取得先: [azumagのFANBOX](https://azumag.fanbox.cc/)
   - サポートコードは別サービス [twica](https://twica.bluemoon.works/plans) と共通

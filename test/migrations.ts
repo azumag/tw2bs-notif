@@ -5,6 +5,7 @@ import subCheckSql from "../migrations/0004_sub-check.sql?raw";
 import bskySessionsSql from "../migrations/0005_bsky-sessions.sql?raw";
 import postPreferenceSql from "../migrations/0006_post-preference.sql?raw";
 import channelPostingSql from "../migrations/0007_channel-posting.sql?raw";
+import liveStreamsSql from "../migrations/0008_live-streams.sql?raw";
 
 export interface TestMigration {
   name: string;
@@ -26,4 +27,5 @@ export const migrations: TestMigration[] = [
   { name: "0005_bsky-sessions", queries: splitQueries(bskySessionsSql) },
   { name: "0006_post-preference", queries: splitQueries(postPreferenceSql) },
   { name: "0007_channel-posting", queries: splitQueries(channelPostingSql) },
+  { name: "0008_live-streams", queries: splitQueries(liveStreamsSql) },
 ];

@@ -35,3 +35,5 @@ export type AppEnv = Env &
 
 export const STREAM_ONLINE = "stream.online";
 export const STREAM_OFFLINE = "stream.offline";
+/** 配信中バッジの延長。EventSub ではなく自分で遅延投入する内部メッセージ */
+export const STREAM_RENEW = "stream.renew";

@@ -35,18 +35,20 @@
 ## 冪等性
 
 - [ ] 配信中に Twitch コンソールからテストイベントを再送しても二重設定されない(バッジは変化しない)
-- [ ] 終了後にもう一度 offline イベントを送っても何も起きない(`offline without live state, skipped`)
+- [ ] 終了後にもう一度 offline イベントを送っても何も起きない(`offline without live record, skipped`)
 
 ## 長期配信(4時間超の対応)
 
-- [ ] 配信開始から30分経過後に `wrangler tail` で `[info][stream] refreshed live status` が表示される
+- [ ] 配信開始直後に `wrangler tail` で `[info][stream] scheduled badge renewal` が出て、`delaySeconds` が 10800〜12600 の範囲にある
+- [ ] 3〜3.5時間後に `[info][stream] renewed live status` が出て、次の延長がまた予約される
 - [ ] 4時間以上配信し続けた場合もバッジが消えない
 
-## 自己修復
+## 配信中の記録(D1)
 
-- [ ] 配信中に KV の `stream:state:<自分のbroadcaster_user_id>` を削除しても、次の cron(30分以内)で復旧する
-  - 例: `npx wrangler kv key delete "stream:state:123456789" --binding STATE`
-- [ ] 配信終了済みなのに Bluesky のバッジが残っている状態でも、次の cron で消える
+- [ ] 配信開始後、`live_streams` に自分のチャネルの行がある
+  - 例: `npx wrangler d1 execute tw2bs-notif-db --remote --command "SELECT * FROM live_streams"`
+- [ ] 配信終了後、その行が消えている
+- [ ] 延長メッセージが届いた時点で既に配信が終わっていた場合、バッジは消さず `stream not live at renewal, left to expire` が出る(4時間で自然失効する)
 
 ## 異常系
 

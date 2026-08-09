@@ -1,5 +1,9 @@
 import { EVENTSUB_PATH, handleEventSub } from "./lib/eventsub";
-import { processStreamEvent, refreshStreamStatus } from "./lib/stream";
+import {
+  isStreamRenewal,
+  processStreamEvent,
+  processStreamRenewals,
+} from "./lib/stream";
 import type { AppEnv } from "./types";
 import {
   buildLoginUrl,
@@ -17,7 +21,7 @@ import {
   getSession,
   sessionCookieHeader,
 } from "./lib/session";
-import type { StreamEvent } from "./lib/stream";
+import type { QueueMessage, StreamRenewal } from "./lib/stream";
 import {
   ensureChannelSubscriptions,
   fetchTwitchUserByLogin,
@@ -1525,16 +1529,17 @@ export default {
     }
     return new Response("Not Found", { status: 404 });
   },
-  async scheduled(
-    _controller: ScheduledController,
-    env: AppEnv,
-    ctx: ExecutionContext,
-  ) {
-    ctx.waitUntil(refreshStreamStatus(env));
-  },
-  async queue(batch: MessageBatch<StreamEvent>, env: AppEnv): Promise<void> {
+  async queue(batch: MessageBatch<QueueMessage>, env: AppEnv): Promise<void> {
+    // 延長はバッチ内でまとめて処理する。生存確認の Helix 問い合わせを
+    // 1リクエストに畳めるので、同時配信数が増えても呼び出し回数が増えない。
+    const renewals: StreamRenewal[] = [];
     for (const message of batch.messages) {
+      if (isStreamRenewal(message.body)) {
+        renewals.push(message.body);
+        continue;
+      }
       await processStreamEvent(env, message.body);
     }
+    await processStreamRenewals(env, renewals);
   },
-} satisfies ExportedHandler<AppEnv, StreamEvent>;
+} satisfies ExportedHandler<AppEnv, QueueMessage>;

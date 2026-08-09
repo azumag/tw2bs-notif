@@ -3,7 +3,7 @@
   "compatibility_date": "2026-08-01",
   "main": "src/index.ts",
   "triggers": {
-    "crons": ["0,30 * * * *"]
+    "crons": []
   },
   "vars": {
     "BSKY_POST_ON_START": "true",
