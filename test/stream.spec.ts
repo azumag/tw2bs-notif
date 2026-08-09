@@ -71,6 +71,7 @@ const streamState = {
   id: "stream-1",
   startedAt: "2026-08-07T00:00:00Z",
   title: "テスト配信",
+  gameName: "Music",
   userLogin: "cool_user",
 };
 
@@ -175,15 +176,19 @@ describe("processStreamEvent", () => {
 
     expect(blueskyModule.createStreamPost).toHaveBeenCalledWith(
       expect.anything(),
-      { uri: "https://www.twitch.tv/cool_user", title: "テスト配信" },
+      {
+        uri: "https://www.twitch.tv/cool_user",
+        title: "テスト配信",
+        text: "配信開始しました\nテスト配信",
+      },
     );
   });
 
-  it("ユーザー設定がOFFならバッジだけ反映して通常ポストは作成しない", async () => {
+  it("チャンネル設定がOFFならバッジだけ反映して通常ポストは作成しない", async () => {
     mockStreamStates(new Map([["12345", streamState]]));
     await env.DB.prepare(
-      `UPDATE users SET bsky_post_on_start = 0
-       WHERE twitch_user_id = 'user-1'`,
+      `UPDATE connections SET post_on_start = 0
+       WHERE user_id = 'user-1' AND twitch_channel_id = '12345'`,
     ).run();
     const e = makeEnv() as AppEnv & { BSKY_POST_ON_START?: string };
     e.BSKY_POST_ON_START = "true";
@@ -192,6 +197,27 @@ describe("processStreamEvent", () => {
 
     expect(blueskyModule.setLiveStatus).toHaveBeenCalledTimes(1);
     expect(blueskyModule.createStreamPost).not.toHaveBeenCalled();
+  });
+
+  it("チャンネル固有テンプレートへタイトル・カテゴリ・URLを展開する", async () => {
+    mockStreamStates(new Map([["12345", streamState]]));
+    await env.DB.prepare(
+      `UPDATE connections
+       SET post_template = '{channel} 配信中\n{title}\n{category}\n{url}',
+           post_include_title = 1, post_include_category = 1
+       WHERE user_id = 'user-1' AND twitch_channel_id = '12345'`,
+    ).run();
+    const e = makeEnv() as AppEnv & { BSKY_POST_ON_START?: string };
+    e.BSKY_POST_ON_START = "true";
+
+    await processStreamEvent(e, onlineEvent);
+
+    expect(blueskyModule.createStreamPost).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        text: "あずまぐ 配信中\nテスト配信\nMusic\nhttps://www.twitch.tv/cool_user",
+      }),
+    );
   });
 
   it("does not create a stream post when the flag is off", async () => {

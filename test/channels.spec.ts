@@ -210,6 +210,191 @@ describe("チャンネル連携ページ", () => {
     expect(body).not.toContain("特典を有効化する");
   });
 
+  it("連携チャンネルごとの自動ポスト設定を表示する", async () => {
+    const env0 = makeEnv();
+    const { cookie } = await loginAs(env0);
+    await env0.DB.prepare(
+      `INSERT INTO connections
+         (user_id, twitch_channel_id, twitch_login, twitch_display_name)
+       VALUES ('12345', '12345', 'azumagbanjo', 'あずまぐ')`,
+    ).run();
+
+    const res = await fetchAs(
+      env0,
+      new Request("https://example.com/channels", {
+        headers: { Cookie: cookie },
+      }),
+    );
+    const body = await res.text();
+
+    expect(body).toContain('action="/channels/posting"');
+    expect(body).toContain('name="post_on_start" value="1" checked');
+    expect(body).toContain('name="post_template"');
+    expect(body).toContain("{title}");
+    expect(body).toContain("{category}");
+    expect(body).toContain("{channel}");
+    expect(body).toContain("{url}");
+    expect(body).toContain("すべてのプランで利用できます");
+  });
+
+  it("無料ユーザーでもチャンネル別の本文・タイトル・カテゴリ設定を保存できる", async () => {
+    const env0 = makeEnv();
+    const { cookie, csrf } = await loginAs(env0);
+    const inserted = await env0.DB.prepare(
+      `INSERT INTO connections
+         (user_id, twitch_channel_id, twitch_login, twitch_display_name)
+       VALUES ('12345', '12345', 'azumagbanjo', 'あずまぐ')`,
+    ).run();
+    const connectionId = Number(inserted.meta.last_row_id);
+    const postTemplate = "🔴 {channel} 配信開始\n{title}\nカテゴリ: {category}\n{url}";
+
+    const update = await fetchAs(
+      env0,
+      new Request("https://example.com/channels/posting", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: new URLSearchParams({
+          csrf,
+          connection_id: String(connectionId),
+          post_on_start: "1",
+          post_template: postTemplate,
+          include_title: "1",
+          include_category: "1",
+        }),
+      }),
+    );
+    expect(update.status).toBe(302);
+    expect(update.headers.get("Location")).toBe(
+      `/channels?posting=saved#channel-${connectionId}`,
+    );
+
+    const row = await env0.DB.prepare(
+      `SELECT post_on_start AS enabled, post_template AS postTemplate,
+              post_include_title AS includeTitle,
+              post_include_category AS includeCategory
+       FROM connections WHERE id = ?`,
+    )
+      .bind(connectionId)
+      .first<{
+        enabled: number;
+        postTemplate: string;
+        includeTitle: number;
+        includeCategory: number;
+      }>();
+    expect(row).toEqual({
+      enabled: 1,
+      postTemplate,
+      includeTitle: 1,
+      includeCategory: 1,
+    });
+
+    const saved = await fetchAs(
+      env0,
+      new Request("https://example.com/channels?posting=saved", {
+        headers: { Cookie: cookie },
+      }),
+    );
+    expect(await saved.text()).toContain("自動ポスト設定を保存しました");
+  });
+
+  it("チャンネル別の自動ポストをOFFにできる", async () => {
+    const env0 = makeEnv();
+    const { cookie, csrf } = await loginAs(env0);
+    const inserted = await env0.DB.prepare(
+      `INSERT INTO connections
+         (user_id, twitch_channel_id, twitch_login, twitch_display_name)
+       VALUES ('12345', '12345', 'azumagbanjo', 'あずまぐ')`,
+    ).run();
+    const connectionId = Number(inserted.meta.last_row_id);
+
+    const update = await fetchAs(
+      env0,
+      new Request("https://example.com/channels/posting", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: new URLSearchParams({
+          csrf,
+          connection_id: String(connectionId),
+          post_template: "配信開始しました",
+        }),
+      }),
+    );
+    expect(update.status).toBe(302);
+
+    const row = await env0.DB.prepare(
+      "SELECT post_on_start AS enabled FROM connections WHERE id = ?",
+    )
+      .bind(connectionId)
+      .first<{ enabled: number }>();
+    expect(row?.enabled).toBe(0);
+  });
+
+  it("CSRF不一致と他ユーザーのチャンネル更新を拒否する", async () => {
+    const env0 = makeEnv();
+    const { cookie, csrf } = await loginAs(env0);
+    const inserted = await env0.DB.prepare(
+      `INSERT INTO connections
+         (user_id, twitch_channel_id, twitch_login, twitch_display_name)
+       VALUES ('other-user', '99999', 'other_channel', '別チャンネル')`,
+    ).run();
+    const connectionId = Number(inserted.meta.last_row_id);
+    const requestBody = {
+      connection_id: String(connectionId),
+      post_template: "変更されない本文",
+    };
+
+    const csrfRejected = await fetchAs(
+      env0,
+      new Request("https://example.com/channels/posting", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: new URLSearchParams({ csrf: "wrong", ...requestBody }),
+      }),
+    );
+    expect(await csrfRejected.text()).toContain("無効なリクエスト");
+
+    const ownerRejected = await fetchAs(
+      env0,
+      new Request("https://example.com/channels/posting", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: new URLSearchParams({ csrf, ...requestBody }),
+      }),
+    );
+    expect(await ownerRejected.text()).toContain("チャンネル設定を保存できません");
+
+    const row = await env0.DB.prepare(
+      "SELECT post_template AS postTemplate FROM connections WHERE id = ?",
+    )
+      .bind(connectionId)
+      .first<{ postTemplate: string }>();
+    expect(row?.postTemplate).not.toBe("変更されない本文");
+  });
+
+  it("未対応のテンプレート変数を拒否する", async () => {
+    const env0 = makeEnv();
+    const { cookie, csrf } = await loginAs(env0);
+    const inserted = await env0.DB.prepare(
+      `INSERT INTO connections
+         (user_id, twitch_channel_id, twitch_login, twitch_display_name)
+       VALUES ('12345', '12345', 'azumagbanjo', 'あずまぐ')`,
+    ).run();
+
+    const update = await fetchAs(
+      env0,
+      new Request("https://example.com/channels/posting", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: new URLSearchParams({
+          csrf,
+          connection_id: String(inserted.meta.last_row_id),
+          post_template: "{unknown}",
+        }),
+      }),
+    );
+    expect(await update.text()).toContain("使用できない変数です");
+  });
+
   it("自分のチャンネルを連携すると一覧に表示され購読が作られる", async () => {
     let createCount = 0;
     mockFetch({

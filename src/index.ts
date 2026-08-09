@@ -27,6 +27,7 @@ import {
   findConnectionByChannel,
   insertConnection,
   listConnections,
+  updateConnectionPostingSettings,
 } from "./lib/connections";
 import { clearLiveStatus, getSessionForUser } from "./lib/bluesky";
 import {
@@ -51,9 +52,9 @@ import {
 } from "./lib/bsky-oauth";
 import { logError, logInfo } from "./lib/logger";
 import {
-  getPostOnStartEnabled,
-  setPostOnStartEnabled,
-} from "./lib/user-preferences";
+  MAX_POST_TEMPLATE_LENGTH,
+  validatePostTemplate,
+} from "./lib/post-template";
 
 const LOGIN_PATH = "/auth/twitch/login";
 const CALLBACK_PATH = "/auth/twitch/callback";
@@ -62,6 +63,7 @@ const CHANNELS_PATH = "/channels";
 const CHANNELS_CONNECT_PATH = "/channels/connect";
 const CHANNELS_ADD_PATH = "/channels/add";
 const CHANNELS_DISCONNECT_PATH = "/channels/disconnect";
+const CHANNELS_POSTING_PATH = "/channels/posting";
 const SUPPORT_PATH = "/support";
 const SUPPORT_ACTIVATE_PATH = "/support/activate";
 const SUPPORT_DEACTIVATE_PATH = "/support/deactivate";
@@ -69,12 +71,12 @@ const SUB_CHECK_PATH = "/support/check-subscription";
 const SUB_DISABLE_PATH = "/support/disable-subscription";
 const SUB_ENABLE_PATH = "/support/enable-subscription";
 const FANBOX_URL = "https://azumag.fanbox.cc/";
+const TWICA_URL = "https://twica.bluemoon.works/plans";
 const BSKY_LOGIN_PATH = "/auth/bluesky/login";
 const BSKY_CALLBACK_PATH = "/auth/bluesky/callback";
 const BSKY_DISCONNECT_PATH = "/auth/bluesky/disconnect";
 const BSKY_METADATA_PATH = "/oauth-client-metadata.json";
 const SETTINGS_PATH = "/settings";
-const SETTINGS_POSTING_PATH = "/settings/posting";
 const WEBHOOK_SECRET_KEY = "twitch:webhook_secret";
 
 function htmlPage(title: string, body: string): Response {
@@ -198,20 +200,45 @@ async function handleChannels(
     return new Response(null, { status: 302, headers: { Location: "/" } });
   }
   const connections = await listConnections(env, session.twitchUserId);
+  const postingSaved =
+    new URL(request.url).searchParams.get("posting") === "saved";
   const canUseMultiChannel = await hasActiveEntitlement(
     env,
     session.twitchUserId,
   );
   const rows = connections
-    .map(
-      (c) =>
-        `<li>${escapeHtml(c.twitchDisplayName)} (@${escapeHtml(c.twitchLogin)})
-         <form method="post" action="${CHANNELS_DISCONNECT_PATH}" style="display:inline">
+    .map((c) => {
+      const suffix = String(c.id);
+      return `<li id="channel-${suffix}">
+         <h3>${escapeHtml(c.twitchDisplayName)} (@${escapeHtml(c.twitchLogin)})</h3>
+         <form method="post" action="${CHANNELS_POSTING_PATH}">
+           <input type="hidden" name="csrf" value="${session.csrf}">
+           <input type="hidden" name="connection_id" value="${c.id}">
+           <p><label>
+             <input type="checkbox" name="post_on_start" value="1"${c.postOnStart ? " checked" : ""}>
+             配信開始時にBlueskyへポストする
+           </label></p>
+           <p><label for="post_template_${suffix}">ポスト本文のフォーマット</label><br>
+             <textarea id="post_template_${suffix}" name="post_template" rows="5" cols="60" maxlength="${MAX_POST_TEMPLATE_LENGTH}" required>${escapeHtml(c.postTemplate)}</textarea>
+           </p>
+           <p><label>
+             <input type="checkbox" name="include_title" value="1"${c.postIncludeTitle ? " checked" : ""}>
+             配信タイトルをポスト本文に含める
+           </label></p>
+           <p><label>
+             <input type="checkbox" name="include_category" value="1"${c.postIncludeCategory ? " checked" : ""}>
+             カテゴリをポスト本文に含める
+           </label></p>
+           <p><small>利用できる変数: {title} (配信タイトル)、{category} (カテゴリ)、{channel} (チャンネル名)、{url} (Twitch URL)。タイトルとカテゴリのチェックを外すと、対応する変数は空になります。</small></p>
+           <button type="submit">このチャンネルの投稿設定を保存</button>
+         </form>
+         <form method="post" action="${CHANNELS_DISCONNECT_PATH}">
            <input type="hidden" name="csrf" value="${session.csrf}">
            <input type="hidden" name="connection_id" value="${c.id}">
            <button type="submit">解除</button>
-         </form></li>`,
-    )
+         </form>
+         </li>`;
+    })
     .join("");
   const multiChannelSettings = canUseMultiChannel
     ? `<p>ご自身が管理している別のTwitchチャンネルのユーザー名を入力してください。</p>
@@ -228,7 +255,9 @@ async function handleChannels(
     `<h1>チャンネル連携</h1>
      <p>ログイン中: ${escapeHtml(session.twitchUserId)}</p>
      <p><a href="/">← 戻る</a></p>
+     ${postingSaved ? "<p><strong>チャンネルの自動ポスト設定を保存しました。</strong></p>" : ""}
      <h2>連携済みチャンネル</h2>
+     <p>自動ポストのON/OFF、本文、配信タイトル・カテゴリの使用をチャンネルごとに設定できます。この機能はすべてのプランで利用できます。</p>
      <ul>${rows || "<li>(なし)</li>"}</ul>
      <h2>チャンネルを連携</h2>
      <form method="post" action="${CHANNELS_CONNECT_PATH}">
@@ -488,6 +517,7 @@ async function handleSupport(
      <p>azumagのFANBOXで支援してくださった方へ、サポートコードをお届けしています。</p>
      <p>支援後、FANBOXのメッセージまたは支援者向け投稿でコードを確認し、下のフォームへ入力してください。</p>
      <p><a href="${FANBOX_URL}" target="_blank" rel="noopener noreferrer">azumagのFANBOXを見る</a></p>
+     <p>サポートコードは、別サービス <a href="${TWICA_URL}" target="_blank" rel="noopener noreferrer">twica</a> と同一のものをご利用いただけます。</p>
      <h2>現在の特典</h2>
      <ul>${rows || "<li>(なし)</li>"}</ul>
      <h2>Twitchサブスク(azumagbanjo)</h2>
@@ -683,7 +713,7 @@ async function handleBskyDisconnect(
   return new Response(null, { status: 302, headers: { Location: SETTINGS_PATH } });
 }
 
-async function handlePostingSettings(
+async function handleChannelPostingSettings(
   request: Request,
   env: AppEnv,
 ): Promise<Response> {
@@ -693,35 +723,59 @@ async function handlePostingSettings(
   if (!session || csrf !== session.csrf) {
     return htmlPage("エラー", "<p>無効なリクエストです。</p>");
   }
-  const enabled = form?.get("post_on_start") === "1";
+  const connectionIdRaw = form?.get("connection_id");
+  const connectionId =
+    typeof connectionIdRaw === "string" ? Number(connectionIdRaw) : NaN;
+  const postTemplateRaw = form?.get("post_template");
+  const postTemplate =
+    typeof postTemplateRaw === "string" ? postTemplateRaw.trim() : "";
+  if (!Number.isSafeInteger(connectionId) || connectionId <= 0) {
+    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+  }
+  const templateError = validatePostTemplate(postTemplate);
+  if (templateError) {
+    return htmlPage(
+      "エラー",
+      `<p>${escapeHtml(templateError)}</p><p><a href="${CHANNELS_PATH}#channel-${connectionId}">戻る</a></p>`,
+    );
+  }
   try {
-    const updated = await setPostOnStartEnabled(
+    const updated = await updateConnectionPostingSettings(
       env,
       session.twitchUserId,
-      enabled,
+      connectionId,
+      {
+        postOnStart: form?.get("post_on_start") === "1",
+        postTemplate,
+        postIncludeTitle: form?.get("include_title") === "1",
+        postIncludeCategory: form?.get("include_category") === "1",
+      },
     );
     if (!updated) {
       return htmlPage(
         "エラー",
-        "<p>ユーザー設定を保存できませんでした。再ログインしてお試しください。</p>",
+        "<p>チャンネル設定を保存できませんでした。連携状態を確認してください。</p>",
       );
     }
-    logInfo("settings", "updated post-on-start preference", {
+    logInfo("settings", "updated channel posting preference", {
       userId: session.twitchUserId,
-      enabled,
+      connectionId,
     });
     return new Response(null, {
       status: 302,
-      headers: { Location: `${SETTINGS_PATH}?posting=saved` },
+      headers: {
+        Location: `${CHANNELS_PATH}?posting=saved#channel-${connectionId}`,
+      },
     });
   } catch (err) {
-    logError("settings", "post-on-start preference update failed", err, {
+    logError("settings", "channel posting preference update failed", err, {
       userId: session.twitchUserId,
+      connectionId,
     });
     return htmlPage(
       "エラー",
       `<p>設定の保存に失敗しました。</p>
-       <p><a href="${SETTINGS_PATH}">戻る</a></p>`,
+       <p><a href="${CHANNELS_PATH}#channel-${connectionId}">戻る</a></p>`,
     );
   }
 }
@@ -734,12 +788,7 @@ async function handleSettings(
   if (!session) {
     return new Response(null, { status: 302, headers: { Location: "/" } });
   }
-  const [did, postOnStartEnabled] = await Promise.all([
-    getBskyDidForUser(env, session.twitchUserId),
-    getPostOnStartEnabled(env, session.twitchUserId),
-  ]);
-  const postingSaved =
-    new URL(request.url).searchParams.get("posting") === "saved";
+  const did = await getBskyDidForUser(env, session.twitchUserId);
   const body = did
     ? `<h2>Bluesky連携</h2>
        <p>連携中: ${escapeHtml(did)}</p>
@@ -755,19 +804,10 @@ async function handleSettings(
     "orbsky - 設定",
     `<h1>設定</h1>
      <p><a href="/">← 戻る</a></p>
-     ${postingSaved ? "<p><strong>自動ポスト設定を保存しました。</strong></p>" : ""}
      ${body}
      <h2>配信開始時の自動ポスト</h2>
-     <p>配信開始時に、連携中のBlueskyアカウントへ通常のポストを作成するか選べます。配信中バッジはこの設定に関係なく反映されます。</p>
-     <form method="post" action="${SETTINGS_POSTING_PATH}">
-       <input type="hidden" name="csrf" value="${session.csrf}">
-       <p><label>
-           <input type="checkbox" name="post_on_start" value="1"${postOnStartEnabled ? " checked" : ""}>
-           配信開始時にBlueskyへポストする
-       </label></p>
-       <button type="submit">自動ポスト設定を保存</button>
-     </form>
-     <p>現在: <strong>${postOnStartEnabled ? "ON" : "OFF"}</strong></p>
+     <p>自動ポストのON/OFFと本文は、連携しているTwitchチャンネルごとに設定できます。配信中バッジは自動ポスト設定に関係なく反映されます。</p>
+     <p><a href="${CHANNELS_PATH}">チャンネル別の自動ポスト設定を開く</a></p>
      <p><small>この設定はすべてのプランで利用できます。</small></p>`,
   );
 }
@@ -804,6 +844,9 @@ export default {
     if (url.pathname === CHANNELS_DISCONNECT_PATH && request.method === "POST") {
       return handleDisconnectChannel(request, env);
     }
+    if (url.pathname === CHANNELS_POSTING_PATH && request.method === "POST") {
+      return handleChannelPostingSettings(request, env);
+    }
     if (url.pathname === SUPPORT_PATH && request.method === "GET") {
       return handleSupport(request, env);
     }
@@ -837,9 +880,6 @@ export default {
     }
     if (url.pathname === BSKY_DISCONNECT_PATH && request.method === "POST") {
       return handleBskyDisconnect(request, env);
-    }
-    if (url.pathname === SETTINGS_POSTING_PATH && request.method === "POST") {
-      return handlePostingSettings(request, env);
     }
     if (url.pathname === SETTINGS_PATH && request.method === "GET") {
       return handleSettings(request, env);

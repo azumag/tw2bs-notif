@@ -10,7 +10,7 @@ import {
 import { getStreamStatesBatch } from "./twitch";
 import { findConnectionsByChannel, listAllConnections } from "./connections";
 import { logError, logInfo } from "./logger";
-import { getPostOnStartEnabled } from "./user-preferences";
+import { formatStreamPostText } from "./post-template";
 
 const C = "stream";
 
@@ -74,11 +74,11 @@ export async function processStreamEvent(
           logError(C, "stream poll failed", err);
           return null;
         });
-      const login = event.broadcasterUserLogin ?? stream?.userLogin;
-      const input = { uri: twitchUrl(login), title: stream?.title };
-
       // 連携ユーザーごとに Bluesky へ反映
       for (const connection of connections) {
+        const login =
+          event.broadcasterUserLogin ?? stream?.userLogin ?? connection.twitchLogin;
+        const input = { uri: twitchUrl(login), title: stream?.title };
         const session = await getSessionForUser(env, connection.userId);
         if (!session) {
           logInfo(C, "user has no bsky session, skipped", {
@@ -89,15 +89,23 @@ export async function processStreamEvent(
         await setLiveStatus(session, input);
         const postOnStartEnabled =
           env.BSKY_POST_ON_START === "true" &&
-          (await getPostOnStartEnabled(env, connection.userId).catch((err) => {
-            logError(C, "post preference lookup failed", err, {
-              userId: connection.userId,
-            });
-            return false;
-          }));
+          connection.postOnStart;
         if (postOnStartEnabled) {
           try {
-            await createStreamPost(session, input);
+            const text = formatStreamPostText(
+              connection.postTemplate,
+              {
+                title: stream?.title,
+                category: stream?.gameName,
+                channel: connection.twitchDisplayName,
+                url: input.uri,
+              },
+              {
+                includeTitle: connection.postIncludeTitle,
+                includeCategory: connection.postIncludeCategory,
+              },
+            );
+            await createStreamPost(session, { ...input, text });
           } catch (err) {
             logError(C, "stream post failed", err, {
               userId: connection.userId,

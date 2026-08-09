@@ -534,9 +534,8 @@ describe("設定ページと連携ルート", () => {
     expect(body).toContain("/auth/bluesky/login");
     expect(body).not.toContain("name=\"handle\"");
     expect(body).toContain("配信開始時の自動ポスト");
-    expect(body).toContain('action="/settings/posting"');
-    expect(body).toContain('name="post_on_start" value="1" checked');
-    expect(body).toContain("現在: <strong>ON</strong>");
+    expect(body).toContain('href="/channels"');
+    expect(body).toContain("チャンネル別の自動ポスト設定を開く");
     expect(body).toContain("すべてのプランで利用できます");
   });
 
@@ -557,85 +556,6 @@ describe("設定ページと連携ルート", () => {
     const body = await res.text();
     expect(body).toContain("did:plc:test");
     expect(body).toContain("/auth/bluesky/disconnect");
-  });
-
-  it("無料ユーザーでも配信開始時の自動ポストをOFFにできる", async () => {
-    const env0 = makeEnv();
-    const { cookie, csrf } = await loginAndGetCookie(env0);
-
-    const update = await fetchAs(
-      env0,
-      new Request("https://example.com/settings/posting", {
-        method: "POST",
-        headers: { Cookie: cookie },
-        body: new URLSearchParams({ csrf }),
-      }),
-    );
-    expect(update.status).toBe(302);
-    expect(update.headers.get("Location")).toBe("/settings?posting=saved");
-
-    const row = await env0.DB.prepare(
-      `SELECT bsky_post_on_start AS enabled
-       FROM users WHERE twitch_user_id = 'user-1'`,
-    ).first<{ enabled: number }>();
-    expect(row?.enabled).toBe(0);
-
-    const settings = await fetchAs(
-      env0,
-      new Request("https://example.com/settings?posting=saved", {
-        headers: { Cookie: cookie },
-      }),
-    );
-    const body = await settings.text();
-    expect(body).toContain("自動ポスト設定を保存しました");
-    expect(body).toContain('name="post_on_start" value="1">');
-    expect(body).toContain("現在: <strong>OFF</strong>");
-  });
-
-  it("自動ポストをONへ戻せる", async () => {
-    const env0 = makeEnv();
-    const { cookie, csrf } = await loginAndGetCookie(env0);
-    await env0.DB.prepare(
-      `UPDATE users SET bsky_post_on_start = 0
-       WHERE twitch_user_id = 'user-1'`,
-    ).run();
-
-    const update = await fetchAs(
-      env0,
-      new Request("https://example.com/settings/posting", {
-        method: "POST",
-        headers: { Cookie: cookie },
-        body: new URLSearchParams({ csrf, post_on_start: "1" }),
-      }),
-    );
-    expect(update.status).toBe(302);
-
-    const row = await env0.DB.prepare(
-      `SELECT bsky_post_on_start AS enabled
-       FROM users WHERE twitch_user_id = 'user-1'`,
-    ).first<{ enabled: number }>();
-    expect(row?.enabled).toBe(1);
-  });
-
-  it("自動ポスト設定のCSRF不一致を拒否する", async () => {
-    const env0 = makeEnv();
-    const { cookie } = await loginAndGetCookie(env0);
-
-    const update = await fetchAs(
-      env0,
-      new Request("https://example.com/settings/posting", {
-        method: "POST",
-        headers: { Cookie: cookie },
-        body: new URLSearchParams({ csrf: "wrong" }),
-      }),
-    );
-    expect(await update.text()).toContain("無効なリクエスト");
-
-    const row = await env0.DB.prepare(
-      `SELECT bsky_post_on_start AS enabled
-       FROM users WHERE twitch_user_id = 'user-1'`,
-    ).first<{ enabled: number }>();
-    expect(row?.enabled).toBe(1);
   });
 
   it("Bluesky連携ボタンで認可URLへリダイレクトする", async () => {

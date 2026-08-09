@@ -218,6 +218,7 @@ describe("E2E: Twitch EventSub → Bluesky streaming status", () => {
                   broadcaster_user_id: "12345",
                   started_at: "2026-08-07T00:00:00Z",
                   title: "E2Eテスト配信",
+                  game_name: "Music",
                   user_login: "azumag",
                 },
               ],
@@ -237,6 +238,14 @@ describe("E2E: Twitch EventSub → Bluesky streaming status", () => {
     expect(blueskyModule.setLiveStatus).toHaveBeenCalledWith(
       expect.anything(),
       { uri: "https://www.twitch.tv/azumag", title: "E2Eテスト配信" },
+    );
+    expect(blueskyModule.createStreamPost).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        uri: "https://www.twitch.tv/azumag",
+        title: "E2Eテスト配信",
+        text: "配信開始しました\nE2Eテスト配信",
+      },
     );
 
     const state = (await env.STATE.get("stream:state:12345", "json")) as {

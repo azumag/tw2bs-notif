@@ -268,6 +268,9 @@ describe("サポートページ(HTTP)", () => {
     expect(body).toContain("パトロン");
     expect(body).toContain("FANBOXのメッセージまたは支援者向け投稿");
     expect(body).toContain('href="https://azumag.fanbox.cc/"');
+    expect(body).toContain("別サービス");
+    expect(body).toContain('href="https://twica.bluemoon.works/plans"');
+    expect(body).toContain("同一のものをご利用いただけます");
     expect(body).toContain('rel="noopener noreferrer"');
     expect(body).toContain("(なし)");
   });
