@@ -252,6 +252,10 @@ describe("ページとログアウト", () => {
     expect(body).toContain("Twitchログイン済み");
     expect(body).toContain(csrf);
     expect(body).toContain("/auth/logout");
+    // ダッシュボードは各導線カードだけを出す(見出しと説明文は置かない)
+    expect(body).toContain("dashboard-focus");
+    expect(body).not.toContain("配信のお知らせ");
+    expect(body).not.toContain("ここからまとめて確認できます");
   });
 
   it("正しい CSRF でログアウトできる", async () => {

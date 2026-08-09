@@ -897,14 +897,12 @@ pre code { padding: 0; background: transparent; }
 .hero-summary li::marker { color: var(--primary); font-weight: 800; }
 
 .dashboard { max-width: 920px; }
-.dashboard h1 { margin: 0; color: var(--text-strong); font-size: clamp(2rem, 4vw, 3rem); letter-spacing: -0.04em; }
-.dashboard > p { max-width: 620px; margin: 0.4rem 0 0; color: var(--muted-strong); }
 
 .dashboard-focus {
   display: grid;
   grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
   gap: 1rem;
-  margin: 2rem 0 1rem;
+  margin: 0 0 1rem;
 }
 
 .dashboard-primary {
