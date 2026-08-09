@@ -29,6 +29,8 @@ cron (30分毎) → refreshStreamStatus(全連携チャネルをバッチポー�
 - 配信開始時の通常ポストは全プランでチャネルごとに設定可能(`/channels`、連携直後はデフォルトOFF)
 - ON/OFFトグルは切り替えた時点で `/channels/posting` に `only=post_on_start` を送って保存する(投稿文は「変更を保存」でまとめて保存)
 - 本文は `{title}` / `{category}` / `{channel}` / `{url}` を使って自由に構成できる。テンプレートに書いた変数だけが展開される(個別のON/OFFスイッチは無い)
+- `{title}` / `{category}` は Helix の Get Streams から取る。配信開始直後はまだ配信が返らないことがあるため、その場合は Get Channel Information(チャネルに設定中のタイトル・カテゴリ)で補う
+- 本文中のURLとハッシュタグは、レコードに facets(UTF-8バイトオフセット)を付けてリンクにしている。Bluesky は本文を自動ではリンク化しないため、facets が無いとただの文字列として表示される
 - `BSKY_POST_ON_START` は自動ポスト全体の運用スイッチ。チャネル設定がONでも、この値が `true` でない場合は投稿しない
 
 ### サポートコードの発行手順

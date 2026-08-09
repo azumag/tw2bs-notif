@@ -159,6 +159,39 @@ export async function fetchTwitchUserByLogin(
   };
 }
 
+export interface TwitchChannelInformation {
+  title: string;
+  gameName: string;
+}
+
+/**
+ * チャネルに設定されている配信タイトル・カテゴリを取得する。
+ *
+ * stream.online の Webhook はタイトルもカテゴリも持たず、Helix /streams は
+ * 配信開始直後にはまだその配信を返さないことがある。/channels は配信前から
+ * 設定値を返すため、タイトル・カテゴリのフォールバックとして使う。
+ */
+export async function getChannelInformation(
+  env: AppEnv,
+  broadcasterId: string,
+): Promise<TwitchChannelInformation | null> {
+  const token = await getAppAccessToken(env);
+  const url = new URL(`${API_URL}/channels`);
+  url.searchParams.set("broadcaster_id", broadcasterId);
+  const res = await twitchFetch(url.toString(), {
+    headers: authHeaders(env, token),
+  });
+  const payload = (await res.json()) as {
+    data?: Array<{ title?: string; game_name?: string }>;
+  };
+  const channel = payload.data?.[0];
+  if (!channel) return null;
+  return {
+    title: channel.title ?? "",
+    gameName: channel.game_name ?? "",
+  };
+}
+
 export async function getStreamState(
   env: AppEnv,
   broadcasterId: string,
@@ -185,10 +218,12 @@ export async function getStreamStatesBatch(
     const res = await twitchFetch(`${API_URL}/streams?${query}`, {
       headers: authHeaders(env, token),
     });
+    // Helix の Get Streams が返すのは user_id。broadcaster_user_id は
+    // EventSub 側のフィールド名なので、ここで使うと必ず undefined になる。
     const data = (await res.json()) as {
       data: Array<{
         id: string;
-        broadcaster_user_id: string;
+        user_id: string;
         started_at: string;
         title: string;
         game_name: string;
@@ -197,14 +232,15 @@ export async function getStreamStatesBatch(
     };
     const found = new Set<string>();
     for (const stream of data.data) {
-      result.set(stream.broadcaster_user_id, {
+      if (!stream.user_id) continue;
+      result.set(stream.user_id, {
         id: stream.id,
         startedAt: stream.started_at,
         title: stream.title,
         gameName: stream.game_name,
         userLogin: stream.user_login,
       });
-      found.add(stream.broadcaster_user_id);
+      found.add(stream.user_id);
     }
     for (const id of chunk) {
       if (!found.has(id)) {

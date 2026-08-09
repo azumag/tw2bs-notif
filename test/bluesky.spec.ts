@@ -222,10 +222,55 @@ describe("createStreamPost", () => {
 
     await createStreamPost(makeSession(), { uri: "https://www.twitch.tv/azumagbanjo" });
 
-    const record = postedBody?.record as { text: string; embed: { external: { title: string; description: string } } };
+    const record = postedBody?.record as {
+      text: string;
+      facets?: unknown;
+      embed: { external: { title: string; description: string } };
+    };
     expect(record.text).toBe("配信開始しました");
     expect(record.embed.external.title).toBe("");
     expect(record.embed.external.description).toBe("");
+    // URLもタグも無い本文には facets を付けない
+    expect(record.facets).toBeUndefined();
+  });
+
+  it("本文中のURLとハッシュタグに facets を付ける", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    mockFetch({
+      "pds.test/xrpc/com.atproto.repo.createRecord": async (_url, init) => {
+        postedBody = JSON.parse(String(init?.body));
+        return jsonResponse({ uri: "at://...", cid: "post-cid" });
+      },
+    });
+
+    const text = "週末の雑談配信 #twitch\nhttps://www.twitch.tv/azumagbanjo";
+    await createStreamPost(makeSession(), {
+      uri: "https://www.twitch.tv/azumagbanjo",
+      text,
+    });
+
+    const record = postedBody?.record as {
+      text: string;
+      facets: Array<{
+        index: { byteStart: number; byteEnd: number };
+        features: Array<{ $type: string; uri?: string; tag?: string }>;
+      }>;
+    };
+    expect(record.text).toBe(text);
+    expect(record.facets).toHaveLength(2);
+    expect(record.facets.map((f) => f.features[0])).toEqual([
+      { $type: "app.bsky.richtext.facet#tag", tag: "twitch" },
+      {
+        $type: "app.bsky.richtext.facet#link",
+        uri: "https://www.twitch.tv/azumagbanjo",
+      },
+    ]);
+    // 範囲が本文の該当部分を指している
+    const bytes = new TextEncoder().encode(text);
+    const decode = (f: { index: { byteStart: number; byteEnd: number } }) =>
+      new TextDecoder().decode(bytes.slice(f.index.byteStart, f.index.byteEnd));
+    expect(decode(record.facets[0])).toBe("#twitch");
+    expect(decode(record.facets[1])).toBe("https://www.twitch.tv/azumagbanjo");
   });
 
   it("uses a channel-specific custom post body", async () => {

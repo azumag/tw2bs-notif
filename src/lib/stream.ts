@@ -7,7 +7,7 @@ import {
   setLiveStatus,
   statusRecordExists,
 } from "./bluesky";
-import { getStreamStatesBatch } from "./twitch";
+import { getChannelInformation, getStreamStatesBatch } from "./twitch";
 import { findConnectionsByChannel, listAllConnections } from "./connections";
 import { logError, logInfo } from "./logger";
 import { formatStreamPostText } from "./post-template";
@@ -74,11 +74,31 @@ export async function processStreamEvent(
           logError(C, "stream poll failed", err);
           return null;
         });
+      // stream.online の Webhook にはタイトルもカテゴリも含まれず、Helix /streams は
+      // 配信開始直後にはまだこの配信を返さないことがある。その場合 title/category が
+      // 空のまま投稿されてしまうため、チャネル情報(/channels)で補う。
+      let title = stream?.title;
+      let category = stream?.gameName;
+      if (!title || !category) {
+        const channel = await getChannelInformation(env, event.broadcasterUserId)
+          .catch((err) => {
+            logError(C, "channel info fetch failed", err);
+            return null;
+          });
+        if (channel) {
+          title = title || channel.title;
+          category = category || channel.gameName;
+          logInfo(C, "filled stream info from channel", {
+            channelId: event.broadcasterUserId,
+            streamIndexed: !!stream,
+          });
+        }
+      }
       // 連携ユーザーごとに Bluesky へ反映
       for (const connection of connections) {
         const login =
           event.broadcasterUserLogin ?? stream?.userLogin ?? connection.twitchLogin;
-        const input = { uri: twitchUrl(login), title: stream?.title };
+        const input = { uri: twitchUrl(login), title };
         const session = await getSessionForUser(env, connection.userId);
         if (!session) {
           logInfo(C, "user has no bsky session, skipped", {
@@ -93,8 +113,8 @@ export async function processStreamEvent(
         if (postOnStartEnabled) {
           try {
             const text = formatStreamPostText(connection.postTemplate, {
-              title: stream?.title,
-              category: stream?.gameName,
+              title,
+              category,
               channel: connection.twitchDisplayName,
               url: input.uri,
             });

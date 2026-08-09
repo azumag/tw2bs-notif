@@ -1019,7 +1019,7 @@ async function handleSupport(
          <p>azumagのFANBOXで支援いただいた方にサポートコードをお渡ししています。支援後、FANBOXのメッセージまたは支援者向け投稿でコードを確認してください。コードは別サービス <a href="${TWICA_URL}" target="_blank" rel="noopener noreferrer">twica</a> と同一のものをご利用いただけます。</p>
          <p class="action-row"><a class="button button-secondary" href="${FANBOX_URL}" target="_blank" rel="noopener noreferrer">azumagのFANBOXを見る</a></p>
          <h3>2. Twitchサブスク</h3>
-         <p>作者:あずまぐ(@azumagbanjo)のTwitchチャネルをサブスクライブしている方へのおまけ特典です。サブスクライブ済みであれば、下のボタンで確認するだけで有効化されます。</p>
+         <p>作者:あずまぐ(<a href="${OPERATOR_TWITCH_URL}" target="_blank" rel="noopener noreferrer">@azumagbanjo</a>)のTwitchチャネルをサブスクライブしている方へのおまけ特典です。サブスクライブ済みであれば、下のボタンで確認するだけで有効化されます。</p>
        </section>
 
        <section class="focus-card">
@@ -1047,15 +1047,12 @@ async function handleSupport(
 
        <section class="focus-card">
          <h2>Twitchサブスクで有効化</h2>
-         <p>サブスクライブしてから確認すると、マルチチャネル機能が有効になります。</p>
+         <p><a href="${OPERATOR_TWITCH_URL}" target="_blank" rel="noopener noreferrer">azumagbanjoのTwitchチャネル</a>をサブスクライブしてから確認すると、マルチチャネル機能が有効になります。</p>
          <div class="connection-state is-under-heading">
            <div><span>Twitchサブスク(azumagbanjo)</span><strong>${escapeHtml(subStatus)}</strong></div>
            <span class="compact-status ${hasSubResult === true ? "is-success" : ""}">${hasSubResult === true ? "有効" : "未反映"}</span>
          </div>
-         <div class="action-row">
-           ${subPrimaryForm}
-           <a class="button button-secondary" href="${OPERATOR_TWITCH_URL}" target="_blank" rel="noopener noreferrer">azumagbanjoのTwitchチャネルを見る</a>
-         </div>
+         <div class="action-row">${subPrimaryForm}</div>
          ${subDisableForm}
        </section>
      </article>`,
