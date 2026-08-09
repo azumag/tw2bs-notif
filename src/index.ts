@@ -19,6 +19,7 @@ import {
 import type { StreamEvent } from "./lib/stream";
 import {
   ensureChannelSubscriptions,
+  fetchTwitchUserByLogin,
   removeChannelSubscriptions,
 } from "./lib/twitch";
 import {
@@ -55,6 +56,7 @@ const CALLBACK_PATH = "/auth/twitch/callback";
 const LOGOUT_PATH = "/auth/logout";
 const CHANNELS_PATH = "/channels";
 const CHANNELS_CONNECT_PATH = "/channels/connect";
+const CHANNELS_ADD_PATH = "/channels/add";
 const CHANNELS_DISCONNECT_PATH = "/channels/disconnect";
 const SUPPORT_PATH = "/support";
 const SUPPORT_ACTIVATE_PATH = "/support/activate";
@@ -89,6 +91,14 @@ function supportPlanLabel(planType: string): string {
   if (planType === "support") return "サポーター";
   if (planType === "patron") return "パトロン";
   return planType;
+}
+
+function normalizeTwitchLogin(input: string): string | null {
+  const login = input.trim().replace(/^@/, "").toLowerCase();
+  if (!login || login.length > 100 || !/^[a-z0-9_]+$/.test(login)) {
+    return null;
+  }
+  return login;
 }
 
 function renderIndex(
@@ -183,6 +193,10 @@ async function handleChannels(
     return new Response(null, { status: 302, headers: { Location: "/" } });
   }
   const connections = await listConnections(env, session.twitchUserId);
+  const canUseMultiChannel = await hasActiveEntitlement(
+    env,
+    session.twitchUserId,
+  );
   const rows = connections
     .map(
       (c) =>
@@ -194,6 +208,16 @@ async function handleChannels(
          </form></li>`,
     )
     .join("");
+  const multiChannelSettings = canUseMultiChannel
+    ? `<p>ご自身が管理している別のTwitchチャンネルのユーザー名を入力してください。</p>
+       <form method="post" action="${CHANNELS_ADD_PATH}">
+         <input type="hidden" name="csrf" value="${session.csrf}">
+         <label for="channel_login">Twitchユーザー名</label>
+         <input id="channel_login" type="text" name="channel_login" required placeholder="例: azumagsandbox">
+         <button type="submit">チャンネルを追加</button>
+       </form>`
+    : `<p>サポートコードまたはTwitchサブスク特典を有効化すると、管理している複数のチャンネルを追加できます。</p>
+       <p><a href="${SUPPORT_PATH}">特典を有効化する</a></p>`;
   return htmlPage(
     "orbsky - チャンネル連携",
     `<h1>チャンネル連携</h1>
@@ -205,7 +229,9 @@ async function handleChannels(
      <form method="post" action="${CHANNELS_CONNECT_PATH}">
        <input type="hidden" name="csrf" value="${session.csrf}">
        <button type="submit">自分のチャンネルを連携する</button>
-     </form>`,
+     </form>
+     <h2>マルチチャンネル設定</h2>
+     ${multiChannelSettings}`,
   );
 }
 
@@ -257,6 +283,85 @@ async function handleConnectChannel(
     return new Response(null, { status: 302, headers: { Location: CHANNELS_PATH } });
   } catch (err) {
     logError("channels", "connect failed", err);
+    return htmlPage(
+      "エラー",
+      `<p>連携に失敗しました: ${escapeHtml(err instanceof Error ? err.message : String(err))}</p>
+       <p><a href="${CHANNELS_PATH}">戻る</a></p>`,
+    );
+  }
+}
+
+async function handleAddChannel(
+  request: Request,
+  env: AppEnv,
+): Promise<Response> {
+  const session = await getSession(env, request);
+  const form = await request.formData().catch(() => null);
+  const csrf = typeof form?.get("csrf") === "string" ? form.get("csrf") : null;
+  const loginRaw = form?.get("channel_login");
+  const login =
+    typeof loginRaw === "string" ? normalizeTwitchLogin(loginRaw) : null;
+  if (!session || csrf !== session.csrf) {
+    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+  }
+  if (!login) {
+    return htmlPage(
+      "エラー",
+      `<p>Twitchユーザー名を正しく入力してください。</p>
+       <p><a href="${CHANNELS_PATH}">戻る</a></p>`,
+    );
+  }
+  if (!(await hasActiveEntitlement(env, session.twitchUserId))) {
+    return htmlPage(
+      "特典",
+      `<p>マルチチャンネル設定には、サポートコードまたはTwitchサブスク特典の有効化が必要です。</p>
+       <p><a href="${SUPPORT_PATH}">特典ページへ</a></p>`,
+    );
+  }
+
+  try {
+    const secret = await env.STATE.get(WEBHOOK_SECRET_KEY);
+    if (!secret) {
+      return htmlPage(
+        "エラー",
+        `<p>webhook secret が設定されていません。管理者に連絡してください。</p>
+         <p><a href="${CHANNELS_PATH}">戻る</a></p>`,
+      );
+    }
+    const channel = await fetchTwitchUserByLogin(env, login);
+    if (!channel) {
+      return htmlPage(
+        "エラー",
+        `<p>Twitchチャンネルが見つかりません。ユーザー名を確認してください。</p>
+         <p><a href="${CHANNELS_PATH}">戻る</a></p>`,
+      );
+    }
+    const existing = await findConnectionByChannel(
+      env,
+      session.twitchUserId,
+      channel.id,
+    );
+    if (!existing) {
+      await insertConnection(env, session.twitchUserId, channel);
+    }
+    await ensureChannelSubscriptions(
+      env,
+      channel.id,
+      env.EVENTSUB_CALLBACK_URL,
+      secret,
+    );
+    logInfo("channels", "added multi-channel connection", {
+      userId: session.twitchUserId,
+      channelId: channel.id,
+    });
+    return new Response(null, {
+      status: 302,
+      headers: { Location: CHANNELS_PATH },
+    });
+  } catch (err) {
+    logError("channels", "add multi-channel connection failed", err, {
+      userId: session.twitchUserId,
+    });
     return htmlPage(
       "エラー",
       `<p>連携に失敗しました: ${escapeHtml(err instanceof Error ? err.message : String(err))}</p>
@@ -418,6 +523,7 @@ async function handleSupportActivate(
     return htmlPage(
       "特典",
       `<p>有効化しました(プラン: ${escapeHtml(supportPlanLabel(license.planType))})</p>
+       <p><a href="${CHANNELS_PATH}">マルチチャンネル設定へ進む</a></p>
        <p><a href="${SUPPORT_PATH}">戻る</a></p>`,
     );
   } catch (err) {
@@ -625,6 +731,9 @@ export default {
     }
     if (url.pathname === CHANNELS_CONNECT_PATH && request.method === "POST") {
       return handleConnectChannel(request, env);
+    }
+    if (url.pathname === CHANNELS_ADD_PATH && request.method === "POST") {
+      return handleAddChannel(request, env);
     }
     if (url.pathname === CHANNELS_DISCONNECT_PATH && request.method === "POST") {
       return handleDisconnectChannel(request, env);

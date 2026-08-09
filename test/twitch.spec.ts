@@ -5,6 +5,7 @@ import {
   TwitchError,
   createSubscription,
   deleteSubscription,
+  fetchTwitchUserByLogin,
   getAppAccessToken,
   getStreamState,
   listSubscriptions,
@@ -177,6 +178,67 @@ describe("getAppAccessToken", () => {
     await expect(p1).resolves.toBe("token-1");
     await expect(p2).resolves.toBe("token-1");
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("fetchTwitchUserByLogin", () => {
+  it("app access tokenでloginを検索してチャンネル情報を返す", async () => {
+    const fetchMock = mockFetch({
+      "oauth2/token": async () => jsonResponse(tokenResponse),
+      "helix/users?login=azumagsandbox": async (url, init) => {
+        expect(url.searchParams.get("login")).toBe("azumagsandbox");
+        expect(init?.headers).toMatchObject({
+          "Client-ID": "test-client-id",
+          Authorization: "Bearer token-1",
+        });
+        return jsonResponse({
+          data: [
+            {
+              id: "742412446",
+              login: "azumagsandbox",
+              display_name: "azumagsandbox",
+              profile_image_url: "https://example.com/sandbox.png",
+            },
+          ],
+        });
+      },
+    });
+
+    await expect(
+      fetchTwitchUserByLogin(makeEnv(), "AzumagSandbox"),
+    ).resolves.toEqual({
+      id: "742412446",
+      login: "azumagsandbox",
+      displayName: "azumagsandbox",
+      profileImageUrl: "https://example.com/sandbox.png",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("loginが見つからないとnullを返す", async () => {
+    mockFetch({
+      "oauth2/token": async () => jsonResponse(tokenResponse),
+      "helix/users?login=missing": async () => jsonResponse({ data: [] }),
+    });
+
+    await expect(
+      fetchTwitchUserByLogin(makeEnv(), "missing"),
+    ).resolves.toBeNull();
+  });
+
+  it("Twitchのユーザー応答が不正なら502を投げる", async () => {
+    mockFetch({
+      "oauth2/token": async () => jsonResponse(tokenResponse),
+      "helix/users?login=broken": async () =>
+        jsonResponse({ data: [{ id: "123" }] }),
+    });
+
+    await expect(fetchTwitchUserByLogin(makeEnv(), "broken")).rejects.toMatchObject(
+      {
+        name: "TwitchError",
+        status: 502,
+      },
+    );
   });
 });
 

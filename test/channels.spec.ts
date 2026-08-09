@@ -116,6 +116,27 @@ async function loginAs(
   return { cookie: `orbsky_session=${sessionToken}`, csrf };
 }
 
+async function grantSupportEntitlement(
+  env0: AppEnv,
+  userId = "12345",
+): Promise<void> {
+  const code = "MULTI-CHANNEL-CODE";
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(code),
+  );
+  const codeHash = [...new Uint8Array(digest)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+  await env0.DB.prepare(
+    "INSERT INTO support_codes (code_hash, plan_type) VALUES (?, 'support')",
+  )
+    .bind(codeHash)
+    .run();
+  const { activateCode } = await import("../src/lib/support");
+  await activateCode(env0, userId, code);
+}
+
 beforeAll(async () => {
   await applyD1Migrations(env.DB, migrations as D1Migration[]);
 });
@@ -126,6 +147,7 @@ beforeEach(async () => {
   await env.DB.prepare("DELETE FROM user_licenses").run();
   await env.DB.prepare("DELETE FROM support_codes").run();
   await env.STATE.put("twitch:webhook_secret", "webhook-secret");
+  await env.STATE.delete("twitch:token");
   vi.mocked(blueskyModule.clearLiveStatus).mockReset();
   vi.mocked(blueskyModule.getSessionForUser).mockReset();
   vi.mocked(blueskyModule.getSessionForUser).mockResolvedValue({
@@ -163,6 +185,29 @@ describe("チャンネル連携ページ", () => {
     expect(body).toContain("チャンネル連携");
     expect(body).toContain("(なし)");
     expect(body).toContain("/channels/connect");
+    expect(body).toContain("マルチチャンネル設定");
+    expect(body).toContain("特典を有効化する");
+    expect(body).not.toContain('name="channel_login"');
+  });
+
+  it("特典ユーザーにはマルチチャンネル追加フォームを表示する", async () => {
+    const env0 = makeEnv();
+    const { cookie } = await loginAs(env0);
+    await grantSupportEntitlement(env0);
+
+    const res = await fetchAs(
+      env0,
+      new Request("https://example.com/channels", {
+        headers: { Cookie: cookie },
+      }),
+    );
+    const body = await res.text();
+
+    expect(body).toContain('action="/channels/add"');
+    expect(body).toContain('name="channel_login"');
+    expect(body).toContain("例: azumagsandbox");
+    expect(body).toContain("チャンネルを追加");
+    expect(body).not.toContain("特典を有効化する");
   });
 
   it("自分のチャンネルを連携すると一覧に表示され購読が作られる", async () => {
@@ -346,6 +391,14 @@ describe("チャンネル連携ページ", () => {
             token_type: "bearer",
           });
         }
+        if (body.includes("grant_type=client_credentials")) {
+          return jsonResponse({
+            access_token: "app-token",
+            expires_in: 5000000,
+            token_type: "bearer",
+            scope: [],
+          });
+        }
         throw new Error("unexpected grant_type");
       },
       "eventsub/subscriptions": async () => jsonResponse({ data: [] }),
@@ -522,6 +575,184 @@ describe("チャンネル連携ページ", () => {
       "SELECT COUNT(*) AS c FROM connections",
     ).all<{ c: number }>();
     expect(results[0].c).toBe(2);
+  });
+
+  it("特典ユーザーはTwitchユーザー名で別チャンネルを追加できる", async () => {
+    let createCount = 0;
+    mockFetch({
+      "id.twitch.tv/oauth2/token": async () =>
+        jsonResponse({
+          access_token: "app-token",
+          expires_in: 5000000,
+          token_type: "bearer",
+          scope: [],
+        }),
+      "api.twitch.tv/helix/users?login=azumagsandbox": async (url, init) => {
+        expect(url.searchParams.get("login")).toBe("azumagsandbox");
+        expect(init?.headers).toMatchObject({
+          "Client-ID": "test-client-id",
+          Authorization: "Bearer app-token",
+        });
+        return jsonResponse({
+          data: [
+            {
+              id: "742412446",
+              login: "azumagsandbox",
+              display_name: "azumagsandbox",
+              profile_image_url: "https://example.com/sandbox.png",
+            },
+          ],
+        });
+      },
+      "eventsub/subscriptions": async (url, init) => {
+        if (init?.method === "POST") {
+          createCount++;
+          const body = JSON.parse(String(init.body));
+          return jsonResponse({
+            data: [
+              {
+                id: `sub-${createCount}`,
+                ...subscriptionBase,
+                type: body.type,
+                condition: body.condition,
+              },
+            ],
+          });
+        }
+        return jsonResponse({ data: [] });
+      },
+    });
+    const env0 = makeEnv();
+    const { cookie, csrf } = await loginAs(env0);
+    await grantSupportEntitlement(env0);
+
+    const res = await fetchAs(
+      env0,
+      new Request("https://example.com/channels/add", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: new URLSearchParams({
+          csrf,
+          channel_login: "@AzumagSandbox",
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe("/channels");
+    const row = await env0.DB.prepare(
+      `SELECT user_id AS userId, twitch_channel_id AS channelId,
+              twitch_login AS login, twitch_display_name AS displayName
+       FROM connections WHERE user_id = ?`,
+    )
+      .bind("12345")
+      .first<{
+        userId: string;
+        channelId: string;
+        login: string;
+        displayName: string;
+      }>();
+    expect(row).toEqual({
+      userId: "12345",
+      channelId: "742412446",
+      login: "azumagsandbox",
+      displayName: "azumagsandbox",
+    });
+    expect(createCount).toBe(2);
+  });
+
+  it("無料ユーザーはチャンネル追加POSTを直接送っても拒否される", async () => {
+    const env0 = makeEnv();
+    const { cookie, csrf } = await loginAs(env0);
+    await env0.DB.prepare(
+      "UPDATE users SET twitch_sub_check_disabled = 1 WHERE twitch_user_id = ?",
+    )
+      .bind("12345")
+      .run();
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const res = await fetchAs(
+      env0,
+      new Request("https://example.com/channels/add", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: new URLSearchParams({ csrf, channel_login: "azumagsandbox" }),
+      }),
+    );
+
+    expect(await res.text()).toContain("特典の有効化が必要");
+    expect(fetchMock).not.toHaveBeenCalled();
+    const count = await env0.DB.prepare(
+      "SELECT COUNT(*) AS count FROM connections",
+    ).first<{ count: number }>();
+    expect(count?.count).toBe(0);
+  });
+
+  it("存在しないTwitchユーザー名は追加しない", async () => {
+    mockFetch({
+      "id.twitch.tv/oauth2/token": async () =>
+        jsonResponse({
+          access_token: "app-token",
+          expires_in: 5000000,
+          token_type: "bearer",
+          scope: [],
+        }),
+      "api.twitch.tv/helix/users?login=missing": async () =>
+        jsonResponse({ data: [] }),
+    });
+    const env0 = makeEnv();
+    const { cookie, csrf } = await loginAs(env0);
+    await grantSupportEntitlement(env0);
+
+    const res = await fetchAs(
+      env0,
+      new Request("https://example.com/channels/add", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: new URLSearchParams({ csrf, channel_login: "missing" }),
+      }),
+    );
+
+    expect(await res.text()).toContain("Twitchチャンネルが見つかりません");
+    const count = await env0.DB.prepare(
+      "SELECT COUNT(*) AS count FROM connections",
+    ).first<{ count: number }>();
+    expect(count?.count).toBe(0);
+  });
+
+  it("不正形式のTwitchユーザー名と誤ったCSRFを拒否する", async () => {
+    const env0 = makeEnv();
+    const { cookie, csrf } = await loginAs(env0);
+    await grantSupportEntitlement(env0);
+
+    const invalidLogin = await fetchAs(
+      env0,
+      new Request("https://example.com/channels/add", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: new URLSearchParams({
+          csrf,
+          channel_login: "https://twitch.tv/example",
+        }),
+      }),
+    );
+    expect(await invalidLogin.text()).toContain(
+      "Twitchユーザー名を正しく入力",
+    );
+
+    const invalidCsrf = await fetchAs(
+      env0,
+      new Request("https://example.com/channels/add", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: new URLSearchParams({
+          csrf: "wrong",
+          channel_login: "azumagsandbox",
+        }),
+      }),
+    );
+    expect(await invalidCsrf.text()).toContain("無効なリクエスト");
   });
 
   it("連携を解除すると connections が消え購読が削除され Bluesky が解除される", async () => {

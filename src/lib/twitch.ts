@@ -119,6 +119,45 @@ export interface StreamState {
   userLogin: string;
 }
 
+export interface TwitchChannelInfo {
+  id: string;
+  login: string;
+  displayName: string;
+  profileImageUrl: string | null;
+}
+
+/** app access token で公開Twitchチャンネルをログイン名から取得する。 */
+export async function fetchTwitchUserByLogin(
+  env: AppEnv,
+  login: string,
+): Promise<TwitchChannelInfo | null> {
+  const token = await getAppAccessToken(env);
+  const url = new URL(`${API_URL}/users`);
+  url.searchParams.set("login", login.trim().toLowerCase());
+  const res = await twitchFetch(url.toString(), {
+    headers: authHeaders(env, token),
+  });
+  const payload = (await res.json()) as {
+    data?: Array<{
+      id?: string;
+      login?: string;
+      display_name?: string;
+      profile_image_url?: string;
+    }>;
+  };
+  const user = payload.data?.[0];
+  if (!user) return null;
+  if (!user.id || !user.login || !user.display_name) {
+    throw new TwitchError(502, "invalid user response from Twitch");
+  }
+  return {
+    id: user.id,
+    login: user.login,
+    displayName: user.display_name,
+    profileImageUrl: user.profile_image_url || null,
+  };
+}
+
 export async function getStreamState(
   env: AppEnv,
   broadcasterId: string,

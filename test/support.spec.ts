@@ -288,9 +288,21 @@ describe("サポートページ(HTTP)", () => {
     const body = await res.text();
     expect(body).toContain("有効化しました");
     expect(body).toContain("プラン: サポーター");
+    expect(body).toContain('href="/channels"');
+    expect(body).toContain("マルチチャンネル設定へ進む");
 
     const licenses = await listEntitlements(env0, "user-1");
     expect(licenses).toHaveLength(1);
+
+    const channels = await fetchAs(
+      env0,
+      new Request("https://example.com/channels", {
+        headers: { Cookie: cookie },
+      }),
+    );
+    const channelsBody = await channels.text();
+    expect(channelsBody).toContain('action="/channels/add"');
+    expect(channelsBody).toContain('name="channel_login"');
   });
 
   it("無効なコードはエラーメッセージを表示する(HTTP)", async () => {
