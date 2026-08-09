@@ -53,6 +53,13 @@ function createHandleResolver(): HandleResolver {
   };
 }
 
+// WebCrypto はアルゴリズム名が「SHA-256」形式必須(SDK は「sha256」で渡す)
+const DIGEST_NAMES: Record<string, string> = {
+  sha256: "SHA-256",
+  sha384: "SHA-384",
+  sha512: "SHA-512",
+};
+
 const runtimeImplementation: RuntimeImplementation = {
   // extractable: true が必須(privateJwk で JWK 化して永続化するため)
   createKey: (algs: string[]) =>
@@ -63,7 +70,12 @@ const runtimeImplementation: RuntimeImplementation = {
     return bytes;
   },
   digest: async (bytes: Uint8Array, algorithm: { name: string }) =>
-    new Uint8Array(await crypto.subtle.digest(algorithm.name, bytes)),
+    new Uint8Array(
+      await crypto.subtle.digest(
+        DIGEST_NAMES[algorithm.name] ?? algorithm.name,
+        bytes,
+      ),
+    ),
 };
 
 /**
