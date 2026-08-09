@@ -892,7 +892,7 @@ pre code { padding: 0; background: transparent; }
 }
 
 .hero-kicker { color: var(--primary); font-size: 0.85rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; }
-.hero h1 { max-width: 760px; margin: 0.55rem 0 1rem; color: var(--text-strong); font-size: clamp(2.6rem, 6vw, 5.5rem); line-height: 1.05; letter-spacing: -0.06em; }
+.hero h1 { max-width: 640px; margin: 0.55rem 0 1rem; color: var(--text-strong); font-size: clamp(2.1rem, 4vw, 3.4rem); line-height: 1.15; letter-spacing: -0.03em; }
 .hero-lead { max-width: 660px; color: var(--muted-strong); font-size: clamp(1rem, 1.6vw, 1.25rem); }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 1.75rem; }
 
@@ -1144,7 +1144,6 @@ tr:last-child td { border-bottom: 0; }
   .next-action, .support-code-form { align-items: stretch; flex-direction: column; }
   .next-action .button, .support-code-form button { width: 100%; }
   .dashboard-footer { align-items: flex-start; flex-direction: column; }
-  .hero h1 { font-size: clamp(2.45rem, 14vw, 4rem); }
 }
 
 @media (prefers-reduced-motion: reduce) {

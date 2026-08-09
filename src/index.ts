@@ -205,8 +205,8 @@ function renderIndex(
       `<section class="hero">
          <div>
            <span class="hero-kicker">Twitch × Bluesky</span>
-           <h1>配信の始まりを、Blueskyへ。</h1>
-           <p class="hero-lead">Twitchの配信開始・終了を検知して、Blueskyの配信中ステータスとお知らせ投稿へ自動で反映します。</p>
+           <h1>Twitchの配信をBlueskyへ自動で反映</h1>
+           <p class="hero-lead">配信開始・終了を検知して、Blueskyの配信中ステータスとお知らせ投稿へ自動で反映します。</p>
            <div class="hero-actions">
              <a class="button" href="${LOGIN_PATH}">Twitchでログイン</a>
              <a class="button button-secondary" href="${GUIDE_PATH}">機能概要・使い方を見る</a>
