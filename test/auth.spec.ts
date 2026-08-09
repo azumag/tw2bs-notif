@@ -161,7 +161,8 @@ describe("Twitch OAuth ログイン", () => {
       ),
     );
     expect(cbRes.status).toBe(302);
-    expect(cbRes.headers.get("Location")).toBe("/");
+    // Bluesky未連携なので、投稿設定より先にBluesky連携へ誘導する
+    expect(cbRes.headers.get("Location")).toBe("/settings");
     const setCookie = cbRes.headers.get("Set-Cookie")!;
     expect(setCookie).toContain("HttpOnly");
     expect(setCookie).toContain("SameSite=Lax");

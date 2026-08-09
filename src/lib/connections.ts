@@ -9,8 +9,6 @@ export interface Connection {
   twitchDisplayName: string;
   postOnStart: boolean;
   postTemplate: string;
-  postIncludeTitle: boolean;
-  postIncludeCategory: boolean;
   createdAt: string;
 }
 
@@ -22,30 +20,23 @@ interface ConnectionRow {
   twitchDisplayName: string;
   postOnStart: number;
   postTemplate: string;
-  postIncludeTitle: number;
-  postIncludeCategory: number;
   createdAt: string;
 }
 
 export interface ConnectionPostingSettings {
   postOnStart: boolean;
   postTemplate: string;
-  postIncludeTitle: boolean;
-  postIncludeCategory: boolean;
 }
 
 const CONNECTION_COLUMNS = `id, user_id AS userId, twitch_channel_id AS twitchChannelId,
   twitch_login AS twitchLogin, twitch_display_name AS twitchDisplayName,
   post_on_start AS postOnStart, post_template AS postTemplate,
-  post_include_title AS postIncludeTitle,
-  post_include_category AS postIncludeCategory, created_at AS createdAt`;
+  created_at AS createdAt`;
 
 function toConnection(row: ConnectionRow): Connection {
   return {
     ...row,
     postOnStart: row.postOnStart !== 0,
-    postIncludeTitle: row.postIncludeTitle !== 0,
-    postIncludeCategory: row.postIncludeCategory !== 0,
   };
 }
 
@@ -137,15 +128,12 @@ export async function updateConnectionPostingSettings(
 ): Promise<boolean> {
   const result = await env.DB.prepare(
     `UPDATE connections
-     SET post_on_start = ?, post_template = ?, post_include_title = ?,
-         post_include_category = ?
+     SET post_on_start = ?, post_template = ?
      WHERE id = ? AND user_id = ?`,
   )
     .bind(
       settings.postOnStart ? 1 : 0,
       settings.postTemplate || DEFAULT_POST_TEMPLATE,
-      settings.postIncludeTitle ? 1 : 0,
-      settings.postIncludeCategory ? 1 : 0,
       connectionId,
       userId,
     )

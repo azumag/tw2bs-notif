@@ -92,19 +92,12 @@ export async function processStreamEvent(
           connection.postOnStart;
         if (postOnStartEnabled) {
           try {
-            const text = formatStreamPostText(
-              connection.postTemplate,
-              {
-                title: stream?.title,
-                category: stream?.gameName,
-                channel: connection.twitchDisplayName,
-                url: input.uri,
-              },
-              {
-                includeTitle: connection.postIncludeTitle,
-                includeCategory: connection.postIncludeCategory,
-              },
-            );
+            const text = formatStreamPostText(connection.postTemplate, {
+              title: stream?.title,
+              category: stream?.gameName,
+              channel: connection.twitchDisplayName,
+              url: input.uri,
+            });
             await createStreamPost(session, { ...input, text });
           } catch (err) {
             logError(C, "stream post failed", err, {
