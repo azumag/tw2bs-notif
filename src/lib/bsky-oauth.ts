@@ -167,12 +167,19 @@ export function getOAuthClient(env: AppEnv): OAuthClient {
   return client;
 }
 
-/** Bluesky 認可 URL を生成する(ユーザーのハンドルが必要) */
+/**
+ * Bluesky 認可 URL を生成する。
+ * PDS URL 起点で開始するため、Bluesky 側の認可画面でログイン/アカウント選択ができる
+ * (ハンドル入力を省略し、prompt=select_account で既存セッションのアカウント選択を促す)。
+ * 他の PDS ユーザーへの対応は将来(入力欄で PDS URL を受け付ける等)。
+ */
 export async function createBskyAuthorizeUrl(
   env: AppEnv,
-  handle: string,
 ): Promise<URL> {
-  return getOAuthClient(env).authorize(handle, { scope: BSKY_SCOPES });
+  return getOAuthClient(env).authorize("https://bsky.social", {
+    scope: BSKY_SCOPES,
+    prompt: "select_account",
+  });
 }
 
 /** コールバックを完了し、セッションを永続化する。DID を返す */

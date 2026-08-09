@@ -179,7 +179,7 @@ describe("設定ページと連携ルート", () => {
     expect(res.headers.get("Location")).toBe("/");
   });
 
-  it("未連携の設定ページは連携フォームを表示する", async () => {
+  it("未連携の設定ページは連携ボタンを表示する(ハンドル入力なし)", async () => {
     const env0 = makeEnv();
     const { cookie } = await loginAndGetCookie(env0);
     const res = await fetchAs(
@@ -192,6 +192,7 @@ describe("設定ページと連携ルート", () => {
     expect(body).toContain("Bluesky連携");
     expect(body).toContain("未連携");
     expect(body).toContain("/auth/bluesky/login");
+    expect(body).not.toContain("name=\"handle\"");
   });
 
   it("連携済みの設定ページは DID と解除ボタンを表示する", async () => {
@@ -213,16 +214,29 @@ describe("設定ページと連携ルート", () => {
     expect(body).toContain("/auth/bluesky/disconnect");
   });
 
-  it("ハンドルなしのログインはエラー", async () => {
+  it("Bluesky連携ボタンで認可URLへリダイレクトする", async () => {
+    const bskyOauth = await import("../src/lib/bsky-oauth");
     const env0 = makeEnv();
     const { cookie } = await loginAndGetCookie(env0);
+
+    const mockAuthorize = vi
+      .spyOn(bskyOauth, "createBskyAuthorizeUrl")
+      .mockResolvedValue(
+        new URL("https://bsky.social/oauth/authorize?client_id=test"),
+      );
+
     const res = await fetchAs(
       env0,
       new Request("https://example.com/auth/bluesky/login", {
         headers: { Cookie: cookie },
       }),
     );
-    expect(await res.text()).toContain("ハンドル");
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toContain(
+      "https://bsky.social/oauth/authorize",
+    );
+    expect(mockAuthorize).toHaveBeenCalled();
+    mockAuthorize.mockRestore();
   });
 
   it("disconnect は CSRF 検証後にセッションを削除する", async () => {

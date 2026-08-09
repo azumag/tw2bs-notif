@@ -503,20 +503,16 @@ async function handleBskyLogin(
   if (!session) {
     return new Response(null, { status: 302, headers: { Location: "/" } });
   }
-  const url = new URL(request.url);
-  const handle = (url.searchParams.get("handle") ?? "").trim();
-  if (!/^[a-zA-Z0-9.-]+\.[a-zA-Z0-9-]+$/.test(handle)) {
-    return htmlPage("エラー", "<p>Blueskyのハンドルを正しく入力してください。</p>");
-  }
   try {
-    const authUrl = await createBskyAuthorizeUrl(env, handle);
-    logInfo("bsky", "oauth started", { userId: session.twitchUserId, handle });
+    // ハンドル入力なし: Bluesky 側の認可画面でログイン・アカウント選択を行う
+    const authUrl = await createBskyAuthorizeUrl(env);
+    logInfo("bsky", "oauth started", { userId: session.twitchUserId });
     return new Response(null, { status: 302, headers: { Location: authUrl.toString() } });
   } catch (err) {
     logError("bsky", "authorize failed", err, { userId: session.twitchUserId });
     return htmlPage(
       "エラー",
-      "<p>認可の開始に失敗しました。ハンドルが正しいか確認してください。</p>",
+      "<p>認可の開始に失敗しました。時間をおいてもう一度お試しください。</p>",
     );
   }
 }
@@ -576,10 +572,8 @@ async function handleSettings(
        </form>`
     : `<h2>Bluesky連携</h2>
        <p>未連携です。配信ステータスを反映するには Bluesky アカウントと連携してください。</p>
-       <form method="get" action="${BSKY_LOGIN_PATH}">
-         <input type="text" name="handle" required placeholder="あなたのハンドル (例: hoge.bsky.social)">
-         <button type="submit">Blueskyと連携</button>
-       </form>`;
+       <p><a href="${BSKY_LOGIN_PATH}"><button type="button">Blueskyと連携</button></a></p>
+       <p><small>連携画面で Bluesky へのログインまたはアカウント選択ができます。</small></p>`;
   return htmlPage(
     "orbsky - 設定",
     `<h1>設定</h1>
