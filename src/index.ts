@@ -50,6 +50,10 @@ import {
   getBskyDidForUser,
 } from "./lib/bsky-oauth";
 import { logError, logInfo } from "./lib/logger";
+import {
+  getPostOnStartEnabled,
+  setPostOnStartEnabled,
+} from "./lib/user-preferences";
 
 const LOGIN_PATH = "/auth/twitch/login";
 const CALLBACK_PATH = "/auth/twitch/callback";
@@ -70,6 +74,7 @@ const BSKY_CALLBACK_PATH = "/auth/bluesky/callback";
 const BSKY_DISCONNECT_PATH = "/auth/bluesky/disconnect";
 const BSKY_METADATA_PATH = "/oauth-client-metadata.json";
 const SETTINGS_PATH = "/settings";
+const SETTINGS_POSTING_PATH = "/settings/posting";
 const WEBHOOK_SECRET_KEY = "twitch:webhook_secret";
 
 function htmlPage(title: string, body: string): Response {
@@ -115,7 +120,7 @@ function renderIndex(
     `<h1>orbsky</h1><p>ログイン中: ${escapeHtml(session.twitchUserId)}</p>
      <p><a href="${CHANNELS_PATH}">チャンネル連携の管理</a></p>
      <p><a href="${SUPPORT_PATH}">特典(サポートコード)</a></p>
-     <p><a href="${SETTINGS_PATH}">Bluesky連携の設定</a></p>
+     <p><a href="${SETTINGS_PATH}">Bluesky連携・自動ポストの設定</a></p>
      <form method="post" action="${LOGOUT_PATH}">
        <input type="hidden" name="csrf" value="${session.csrf}">
        <button type="submit">ログアウト</button>
@@ -678,6 +683,49 @@ async function handleBskyDisconnect(
   return new Response(null, { status: 302, headers: { Location: SETTINGS_PATH } });
 }
 
+async function handlePostingSettings(
+  request: Request,
+  env: AppEnv,
+): Promise<Response> {
+  const session = await getSession(env, request);
+  const form = await request.formData().catch(() => null);
+  const csrf = typeof form?.get("csrf") === "string" ? form.get("csrf") : null;
+  if (!session || csrf !== session.csrf) {
+    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+  }
+  const enabled = form?.get("post_on_start") === "1";
+  try {
+    const updated = await setPostOnStartEnabled(
+      env,
+      session.twitchUserId,
+      enabled,
+    );
+    if (!updated) {
+      return htmlPage(
+        "エラー",
+        "<p>ユーザー設定を保存できませんでした。再ログインしてお試しください。</p>",
+      );
+    }
+    logInfo("settings", "updated post-on-start preference", {
+      userId: session.twitchUserId,
+      enabled,
+    });
+    return new Response(null, {
+      status: 302,
+      headers: { Location: `${SETTINGS_PATH}?posting=saved` },
+    });
+  } catch (err) {
+    logError("settings", "post-on-start preference update failed", err, {
+      userId: session.twitchUserId,
+    });
+    return htmlPage(
+      "エラー",
+      `<p>設定の保存に失敗しました。</p>
+       <p><a href="${SETTINGS_PATH}">戻る</a></p>`,
+    );
+  }
+}
+
 async function handleSettings(
   request: Request,
   env: AppEnv,
@@ -686,7 +734,12 @@ async function handleSettings(
   if (!session) {
     return new Response(null, { status: 302, headers: { Location: "/" } });
   }
-  const did = await getBskyDidForUser(env, session.twitchUserId);
+  const [did, postOnStartEnabled] = await Promise.all([
+    getBskyDidForUser(env, session.twitchUserId),
+    getPostOnStartEnabled(env, session.twitchUserId),
+  ]);
+  const postingSaved =
+    new URL(request.url).searchParams.get("posting") === "saved";
   const body = did
     ? `<h2>Bluesky連携</h2>
        <p>連携中: ${escapeHtml(did)}</p>
@@ -702,7 +755,20 @@ async function handleSettings(
     "orbsky - 設定",
     `<h1>設定</h1>
      <p><a href="/">← 戻る</a></p>
-     ${body}`,
+     ${postingSaved ? "<p><strong>自動ポスト設定を保存しました。</strong></p>" : ""}
+     ${body}
+     <h2>配信開始時の自動ポスト</h2>
+     <p>配信開始時に、連携中のBlueskyアカウントへ通常のポストを作成するか選べます。配信中バッジはこの設定に関係なく反映されます。</p>
+     <form method="post" action="${SETTINGS_POSTING_PATH}">
+       <input type="hidden" name="csrf" value="${session.csrf}">
+       <p><label>
+           <input type="checkbox" name="post_on_start" value="1"${postOnStartEnabled ? " checked" : ""}>
+           配信開始時にBlueskyへポストする
+       </label></p>
+       <button type="submit">自動ポスト設定を保存</button>
+     </form>
+     <p>現在: <strong>${postOnStartEnabled ? "ON" : "OFF"}</strong></p>
+     <p><small>この設定はすべてのプランで利用できます。</small></p>`,
   );
 }
 
@@ -771,6 +837,9 @@ export default {
     }
     if (url.pathname === BSKY_DISCONNECT_PATH && request.method === "POST") {
       return handleBskyDisconnect(request, env);
+    }
+    if (url.pathname === SETTINGS_POSTING_PATH && request.method === "POST") {
+      return handlePostingSettings(request, env);
     }
     if (url.pathname === SETTINGS_PATH && request.method === "GET") {
       return handleSettings(request, env);

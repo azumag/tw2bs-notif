@@ -80,6 +80,11 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await env.DB.prepare("DELETE FROM connections").run();
+  await env.DB.prepare("DELETE FROM users").run();
+  await env.DB.prepare(
+    `INSERT INTO users (twitch_user_id, twitch_username, twitch_display_name)
+     VALUES ('user-1', 'test_user', 'テストユーザー')`,
+  ).run();
   // チャンネル 12345 の連携を用意
   await env.DB.prepare(
     `INSERT INTO connections (user_id, twitch_channel_id, twitch_login, twitch_display_name)
@@ -172,6 +177,21 @@ describe("processStreamEvent", () => {
       expect.anything(),
       { uri: "https://www.twitch.tv/cool_user", title: "テスト配信" },
     );
+  });
+
+  it("ユーザー設定がOFFならバッジだけ反映して通常ポストは作成しない", async () => {
+    mockStreamStates(new Map([["12345", streamState]]));
+    await env.DB.prepare(
+      `UPDATE users SET bsky_post_on_start = 0
+       WHERE twitch_user_id = 'user-1'`,
+    ).run();
+    const e = makeEnv() as AppEnv & { BSKY_POST_ON_START?: string };
+    e.BSKY_POST_ON_START = "true";
+
+    await processStreamEvent(e, onlineEvent);
+
+    expect(blueskyModule.setLiveStatus).toHaveBeenCalledTimes(1);
+    expect(blueskyModule.createStreamPost).not.toHaveBeenCalled();
   });
 
   it("does not create a stream post when the flag is off", async () => {

@@ -10,6 +10,7 @@ import {
 import { getStreamStatesBatch } from "./twitch";
 import { findConnectionsByChannel, listAllConnections } from "./connections";
 import { logError, logInfo } from "./logger";
+import { getPostOnStartEnabled } from "./user-preferences";
 
 const C = "stream";
 
@@ -86,7 +87,15 @@ export async function processStreamEvent(
           continue;
         }
         await setLiveStatus(session, input);
-        if (env.BSKY_POST_ON_START === "true") {
+        const postOnStartEnabled =
+          env.BSKY_POST_ON_START === "true" &&
+          (await getPostOnStartEnabled(env, connection.userId).catch((err) => {
+            logError(C, "post preference lookup failed", err, {
+              userId: connection.userId,
+            });
+            return false;
+          }));
+        if (postOnStartEnabled) {
           try {
             await createStreamPost(session, input);
           } catch (err) {
