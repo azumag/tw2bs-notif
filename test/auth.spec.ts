@@ -236,7 +236,7 @@ describe("ページとログアウト", () => {
     expect(body).toContain("/auth/twitch/login");
   });
 
-  it("ログイン済みの / はユーザー情報とログアウトフォームを表示する", async () => {
+  it("ログイン済みの / はログイン状態とログアウトフォームを表示する", async () => {
     mockFetch(twitchRoutes);
     const env0 = makeEnv();
     const { token, csrf } = await loginAndGetCookie(env0);
@@ -248,7 +248,7 @@ describe("ページとログアウト", () => {
       }),
     );
     const body = await res.text();
-    expect(body).toContain("ログイン中");
+    expect(body).toContain("Twitchログイン済み");
     expect(body).toContain(csrf);
     expect(body).toContain("/auth/logout");
   });

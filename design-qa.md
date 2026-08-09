@@ -2,65 +2,67 @@
 
 ## Scope
 
-- Target: creator-studio design option 2 for the authenticated channel settings flow.
-- Theme coverage: light and dark, with a user-controlled toggle and persisted preference.
-- Related surfaces reviewed: `/`, `/channels`, `/settings`, `/support`, `/guide`, and `/privacy`.
-- Browser state: local Cloudflare Worker preview with an authenticated fixture, two linked channels, a linked Bluesky DID, and an active multi-channel entitlement.
+- Target: authenticated orbsky screens after the creator-studio redesign.
+- User problem: important actions and status information were visually scattered and difficult to scan.
+- Screens reviewed: `/`, `/channels`, `/settings`, and `/support`.
+- Theme coverage: light and dark, with the existing user-controlled theme toggle.
+- Browser state: production was audited in the authenticated Chrome session; the revised build was verified in the local in-app browser with two linked channels, a linked Bluesky DID, and an active multi-channel entitlement.
 
-## Visual sources
+## Production audit evidence
 
-- Light reference: `/Users/azumag/.codex/generated_images/019fe4c4-75c9-7101-bafe-adfb05ba0171/exec-b205254f-5375-4e05-ad6a-7b8bc82a04a4.png` (1487 x 1058).
-- Dark reference: `/Users/azumag/.codex/generated_images/019fe4c4-75c9-7101-bafe-adfb05ba0171/exec-666d1589-0e70-4aff-b5ee-21f52779d958.png` (1486 x 1059).
-- Light implementation: `/private/tmp/orbsky-implementation-light-v8.png` (1265 x 1515 full page).
-- Dark implementation: `/private/tmp/orbsky-implementation-dark-v8.png` (1265 x 1515 full page).
+1. `/channels` — healthy: `/private/tmp/orbsky-audit-2026-08-10/01-channels-full.png`
+2. `/` — healthy: `/private/tmp/orbsky-audit-2026-08-10/02-home-full.png`
+3. `/settings` — healthy: `/private/tmp/orbsky-audit-2026-08-10/03-settings-full.png`
+4. `/support` — healthy: `/private/tmp/orbsky-audit-2026-08-10/04-support-full.png`
 
-## Comparison method
+The screens loaded normally and showed no broken or missing primary content. The main usability issues were duplicated connection status, three competing layers of navigation and progress, always-expanded administrative controls, equally weighted cards, and an internal numeric user ID in the header.
 
-- The implementation captures were scaled to the corresponding reference width and cropped to the reference height without changing aspect ratio.
-- Full side-by-side evidence:
-  - `/private/tmp/orbsky-qa-light-v8.png`
-  - `/private/tmp/orbsky-qa-dark-v8.png`
-- Focused editor and preview evidence:
-  - `/private/tmp/orbsky-qa-light-v8-focus.png`
-  - `/private/tmp/orbsky-qa-dark-v8-focus.png`
+## Revised visual evidence
 
-## Findings and iterations
+- Channel settings, light: `/private/tmp/orbsky-simplify-light-v1.png`
+- Channel settings, dark: `/private/tmp/orbsky-simplify-dark-v1.png`
+- Home, light: `/private/tmp/orbsky-simplify-home-light-v2.png`
+- Bluesky settings, light: `/private/tmp/orbsky-simplify-settings-light-v2.png`
+- Support, light: `/private/tmp/orbsky-simplify-support-light-v1.png`
+- Support, dark: `/private/tmp/orbsky-simplify-support-dark-v2.png`
+- Same-theme before/after comparison: `/private/tmp/orbsky-before-after-dark.png`
 
-1. Initial comparison: the selected two-column structure, purple/blue accent system, status badges, channel tabs, editor card, and preview card were visually aligned. The save action extended below the reference-height crop (P2 density mismatch).
-2. Density correction: reduced channel-editor-only padding, field spacing, textarea height, checkbox spacing, and action height. The save and disconnect actions now fit inside the same reference-height region in both themes.
-3. Final comparison: no clipped controls, overlapping text, broken borders, accidental horizontal overflow, or theme-specific contrast regressions were visible.
+## Changes and visual review
 
-## Visual review
+- Reduced the authenticated header to three task-based links plus the theme control and removed the numeric account ID.
+- Replaced the home card matrix with one primary action and three compact secondary links.
+- Removed the duplicated three-step progress strip and consolidated connection state into one quiet summary row.
+- Made the channel editor the clear primary workspace; channel tabs now appear only when two or more channels exist.
+- Collapsed channel addition, disconnection, DID details, plan explanations, and subscription management into contextual disclosures.
+- Consolidated support entitlement into a single source-of-truth summary such as `Twitchサブスクで利用中`.
+- Reduced card radius, shadow, spacing, and heading competition while preserving the selected purple/blue visual direction.
+- The revised `/channels` full page is 1091 px high at the captured desktop viewport, compared with 1517 px before the clarity pass.
 
-- Layout: the page hierarchy and master-detail editor/preview relationship match the selected direction. The narrower implementation navigation reflects the product's actual routes.
-- Typography: system Japanese sans-serif is consistent and legible; heading, helper, label, and action hierarchy remain clear in both themes.
-- Color and contrast: light mode uses the selected white/slate/purple/blue palette. Dark mode uses deep navy surfaces with distinct borders and higher-luminance purple, blue, green, and danger colors.
-- Spacing: the editor controls and preview align as a single workspace; the primary action remains visible in the target-height comparison.
-- Assets: reference-only decorative service glyphs and avatar art were not approximated with fake SVG/CSS/emoji assets. Product state is communicated through text, borders, and status labels already supported by the application.
-- Copy: live product data and accurate states replace speculative online/offline labels from the concept image.
+No clipped controls, overlapping text, accidental horizontal overflow, broken borders, or theme-specific contrast regressions were visible in the captured desktop states.
 
 ## Interaction and accessibility review
 
-- Theme toggle changes light/dark mode, updates its accessible label and pressed state, and persists through reload using `localStorage`; first visit respects `prefers-color-scheme`.
-- Channel tabs use tab/tablist/tabpanel semantics, support arrow/Home/End keyboard navigation, and switch the editor plus preview together.
-- Automatic posting uses an accessible switch; title/category controls use associated labels.
-- Variable buttons insert tokens at the textarea cursor and immediately refresh the preview.
-- The disabled-post channel correctly displays `自動ポストはオフです`.
-- Focus styles, reduced-motion handling, responsive breakpoints, and a 320 px minimum layout are present.
-- Browser console after theme, tab, and editor interactions: no errors or warnings.
+- Theme toggle switches light/dark mode and persists the selected theme.
+- Multi-channel tabs switch the editor and preview together; a single channel renders without redundant tabs.
+- Automatic posting switch, variable insertion, preview updates, posting options, and disclosures work in the local browser.
+- Channel and Bluesky disconnection controls were opened for inspection but were not submitted.
+- The browser console was empty after theme, tab, preview, and disclosure interactions.
+- Labels, fieldsets, tab semantics, switch semantics, focus styles, reduced-motion handling, and responsive breakpoints remain present.
+
+This was a screenshot-led visual and interaction review, not a complete assistive-technology audit or WCAG conformance certification. A real stream-start test was intentionally not performed.
 
 ## Regression evidence
 
 - TypeScript: passed (`tsc --noEmit`).
-- Automated tests: 17 files passed, 192 tests passed.
-- Worker bundle: `wrangler deploy --dry-run` passed (694.54 KiB upload, 128.69 KiB gzip).
+- Automated tests: 17 files passed, 193 tests passed.
+- Worker bundle: `wrangler deploy --dry-run` passed (700.85 KiB upload, 129.93 KiB gzip).
 - Source diff whitespace check: passed.
 
 ## Remaining severity
 
 - P0: none.
 - P1: none.
-- P2: none.
-- P3: reference-only decorative icons and generated avatar details are intentionally omitted until canonical brand assets are available; this does not affect hierarchy, usability, or feature behavior.
+- P2: none found in the reviewed states.
+- P3: full screen-reader and narrow-device testing remains outside this screenshot-led pass.
 
 final result: passed
