@@ -62,6 +62,7 @@ const SUPPORT_DEACTIVATE_PATH = "/support/deactivate";
 const SUB_CHECK_PATH = "/support/check-subscription";
 const SUB_DISABLE_PATH = "/support/disable-subscription";
 const SUB_ENABLE_PATH = "/support/enable-subscription";
+const FANBOX_URL = "https://azumag.fanbox.cc/";
 const BSKY_LOGIN_PATH = "/auth/bluesky/login";
 const BSKY_CALLBACK_PATH = "/auth/bluesky/callback";
 const BSKY_DISCONNECT_PATH = "/auth/bluesky/disconnect";
@@ -82,6 +83,12 @@ function escapeHtml(s: string): string {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function supportPlanLabel(planType: string): string {
+  if (planType === "support") return "サポーター";
+  if (planType === "patron") return "パトロン";
+  return planType;
 }
 
 function renderIndex(
@@ -320,7 +327,7 @@ async function handleSupport(
   const rows = licenses
     .map(
       (l) =>
-        `<li>${escapeHtml(l.planType)}${l.fanboxId ? ` (fanbox: ${escapeHtml(l.fanboxId)})` : ""}
+        `<li>${escapeHtml(supportPlanLabel(l.planType))}${l.fanboxId ? ` (fanbox: ${escapeHtml(l.fanboxId)})` : ""}
          <small>(${escapeHtml(l.activatedAt)})</small></li>`,
     )
     .join("");
@@ -360,6 +367,17 @@ async function handleSupport(
     "orbsky - 特典",
     `<h1>特典(サポートコード / Twitchサブスク)</h1>
      <p><a href="/">← 戻る</a></p>
+     <h2>サポートコードでできること</h2>
+     <p>無料利用では連携できるTwitchチャンネルは1つです。サポートコードを有効化すると、2つ目以降も追加して複数のTwitchチャンネルを連携できます。</p>
+     <p>連携した各チャンネルの配信開始・終了を検知し、同じBlueskyアカウントの配信ステータスと自動投稿へ反映できます。</p>
+     <ul>
+       <li><strong>サポーター:</strong> 複数チャンネル連携を利用できます。</li>
+       <li><strong>パトロン:</strong> 複数チャンネル連携を利用できます。orbskyでは現在、サポーターと同じ特典内容です。</li>
+     </ul>
+     <h2>FANBOXでサポートコードを受け取る</h2>
+     <p>azumagのFANBOXで支援してくださった方へ、サポートコードをお届けしています。</p>
+     <p>支援後、FANBOXのメッセージまたは支援者向け投稿でコードを確認し、下のフォームへ入力してください。</p>
+     <p><a href="${FANBOX_URL}" target="_blank" rel="noopener noreferrer">azumagのFANBOXを見る</a></p>
      <h2>現在の特典</h2>
      <ul>${rows || "<li>(なし)</li>"}</ul>
      <h2>Twitchサブスク(azumagbanjo)</h2>
@@ -399,7 +417,7 @@ async function handleSupportActivate(
     });
     return htmlPage(
       "特典",
-      `<p>有効化しました(プラン: ${escapeHtml(license.planType)})</p>
+      `<p>有効化しました(プラン: ${escapeHtml(supportPlanLabel(license.planType))})</p>
        <p><a href="${SUPPORT_PATH}">戻る</a></p>`,
     );
   } catch (err) {

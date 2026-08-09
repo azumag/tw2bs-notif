@@ -262,6 +262,13 @@ describe("サポートページ(HTTP)", () => {
     );
     const body = await res.text();
     expect(body).toContain("サポートコードを入力");
+    expect(body).toContain("サポートコードでできること");
+    expect(body).toContain("複数のTwitchチャンネル");
+    expect(body).toContain("サポーター");
+    expect(body).toContain("パトロン");
+    expect(body).toContain("FANBOXのメッセージまたは支援者向け投稿");
+    expect(body).toContain('href="https://azumag.fanbox.cc/"');
+    expect(body).toContain('rel="noopener noreferrer"');
     expect(body).toContain("(なし)");
   });
 
@@ -278,7 +285,9 @@ describe("サポートページ(HTTP)", () => {
         body: new URLSearchParams({ csrf, code: "CODE-001" }),
       }),
     );
-    expect(await res.text()).toContain("有効化しました");
+    const body = await res.text();
+    expect(body).toContain("有効化しました");
+    expect(body).toContain("プラン: サポーター");
 
     const licenses = await listEntitlements(env0, "user-1");
     expect(licenses).toHaveLength(1);
