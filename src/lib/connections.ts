@@ -1,4 +1,5 @@
 import type { AppEnv } from "../types";
+import { DEFAULT_POST_TEMPLATE } from "./post-template";
 
 export interface Connection {
   id: number;
@@ -6,7 +7,46 @@ export interface Connection {
   twitchChannelId: string;
   twitchLogin: string;
   twitchDisplayName: string;
+  postOnStart: boolean;
+  postTemplate: string;
+  postIncludeTitle: boolean;
+  postIncludeCategory: boolean;
   createdAt: string;
+}
+
+interface ConnectionRow {
+  id: number;
+  userId: string;
+  twitchChannelId: string;
+  twitchLogin: string;
+  twitchDisplayName: string;
+  postOnStart: number;
+  postTemplate: string;
+  postIncludeTitle: number;
+  postIncludeCategory: number;
+  createdAt: string;
+}
+
+export interface ConnectionPostingSettings {
+  postOnStart: boolean;
+  postTemplate: string;
+  postIncludeTitle: boolean;
+  postIncludeCategory: boolean;
+}
+
+const CONNECTION_COLUMNS = `id, user_id AS userId, twitch_channel_id AS twitchChannelId,
+  twitch_login AS twitchLogin, twitch_display_name AS twitchDisplayName,
+  post_on_start AS postOnStart, post_template AS postTemplate,
+  post_include_title AS postIncludeTitle,
+  post_include_category AS postIncludeCategory, created_at AS createdAt`;
+
+function toConnection(row: ConnectionRow): Connection {
+  return {
+    ...row,
+    postOnStart: row.postOnStart !== 0,
+    postIncludeTitle: row.postIncludeTitle !== 0,
+    postIncludeCategory: row.postIncludeCategory !== 0,
+  };
 }
 
 export async function listConnections(
@@ -14,14 +54,12 @@ export async function listConnections(
   userId: string,
 ): Promise<Connection[]> {
   const { results } = await env.DB.prepare(
-    `SELECT id, user_id AS userId, twitch_channel_id AS twitchChannelId,
-            twitch_login AS twitchLogin, twitch_display_name AS twitchDisplayName,
-            created_at AS createdAt
+    `SELECT ${CONNECTION_COLUMNS}
      FROM connections WHERE user_id = ? ORDER BY created_at ASC`,
   )
     .bind(userId)
-    .all<Connection>();
-  return results;
+    .all<ConnectionRow>();
+  return results.map(toConnection);
 }
 
 export async function findConnectionByChannel(
@@ -29,14 +67,13 @@ export async function findConnectionByChannel(
   userId: string,
   channelId: string,
 ): Promise<Connection | null> {
-  return env.DB.prepare(
-    `SELECT id, user_id AS userId, twitch_channel_id AS twitchChannelId,
-            twitch_login AS twitchLogin, twitch_display_name AS twitchDisplayName,
-            created_at AS createdAt
+  const row = await env.DB.prepare(
+    `SELECT ${CONNECTION_COLUMNS}
      FROM connections WHERE user_id = ? AND twitch_channel_id = ?`,
   )
     .bind(userId, channelId)
-    .first<Connection>();
+    .first<ConnectionRow>();
+  return row ? toConnection(row) : null;
 }
 
 /** チャンネルに紐づく全 connections を返す(マルチユーザー対応) */
@@ -45,14 +82,12 @@ export async function findConnectionsByChannel(
   channelId: string,
 ): Promise<Connection[]> {
   const { results } = await env.DB.prepare(
-    `SELECT id, user_id AS userId, twitch_channel_id AS twitchChannelId,
-            twitch_login AS twitchLogin, twitch_display_name AS twitchDisplayName,
-            created_at AS createdAt
+    `SELECT ${CONNECTION_COLUMNS}
      FROM connections WHERE twitch_channel_id = ?`,
   )
     .bind(channelId)
-    .all<Connection>();
-  return results;
+    .all<ConnectionRow>();
+  return results.map(toConnection);
 }
 
 /** 全 connections を返す */
@@ -60,12 +95,10 @@ export async function listAllConnections(
   env: AppEnv,
 ): Promise<Connection[]> {
   const { results } = await env.DB.prepare(
-    `SELECT id, user_id AS userId, twitch_channel_id AS twitchChannelId,
-            twitch_login AS twitchLogin, twitch_display_name AS twitchDisplayName,
-            created_at AS createdAt
+    `SELECT ${CONNECTION_COLUMNS}
      FROM connections ORDER BY created_at ASC`,
-  ).all<Connection>();
-  return results;
+  ).all<ConnectionRow>();
+  return results.map(toConnection);
 }
 
 export async function insertConnection(
@@ -91,6 +124,31 @@ export async function deleteConnection(
     `DELETE FROM connections WHERE id = ? AND user_id = ?`,
   )
     .bind(connectionId, userId)
+    .run();
+  return result.meta.changes > 0;
+}
+
+/** 所有者を確認しながらチャンネル別の自動ポスト設定を保存する。 */
+export async function updateConnectionPostingSettings(
+  env: AppEnv,
+  userId: string,
+  connectionId: number,
+  settings: ConnectionPostingSettings,
+): Promise<boolean> {
+  const result = await env.DB.prepare(
+    `UPDATE connections
+     SET post_on_start = ?, post_template = ?, post_include_title = ?,
+         post_include_category = ?
+     WHERE id = ? AND user_id = ?`,
+  )
+    .bind(
+      settings.postOnStart ? 1 : 0,
+      settings.postTemplate || DEFAULT_POST_TEMPLATE,
+      settings.postIncludeTitle ? 1 : 0,
+      settings.postIncludeCategory ? 1 : 0,
+      connectionId,
+      userId,
+    )
     .run();
   return result.meta.changes > 0;
 }

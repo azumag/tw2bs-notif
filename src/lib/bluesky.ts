@@ -160,7 +160,7 @@ export async function statusRecordExists(
 
 export async function createStreamPost(
   session: BskySessionLike,
-  input: { uri: string; title?: string; description?: string },
+  input: { uri: string; title?: string; description?: string; text?: string },
 ): Promise<void> {
   await xrpc(session, "/xrpc/com.atproto.repo.createRecord", {
     method: "POST",
@@ -170,7 +170,7 @@ export async function createStreamPost(
       collection: "app.bsky.feed.post",
       record: {
         $type: "app.bsky.feed.post",
-        text: `配信開始しました${input.title ? `: ${input.title}` : ""}`,
+        text: input.text ?? `配信開始しました${input.title ? `: ${input.title}` : ""}`,
         createdAt: new Date().toISOString(),
         langs: ["ja"],
         embed: {

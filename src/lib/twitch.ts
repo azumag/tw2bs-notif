@@ -116,6 +116,7 @@ export interface StreamState {
   id: string;
   startedAt: string;
   title: string;
+  gameName: string;
   userLogin: string;
 }
 
@@ -190,6 +191,7 @@ export async function getStreamStatesBatch(
         broadcaster_user_id: string;
         started_at: string;
         title: string;
+        game_name: string;
         user_login: string;
       }>;
     };
@@ -199,6 +201,7 @@ export async function getStreamStatesBatch(
         id: stream.id,
         startedAt: stream.started_at,
         title: stream.title,
+        gameName: stream.game_name,
         userLogin: stream.user_login,
       });
       found.add(stream.broadcaster_user_id);

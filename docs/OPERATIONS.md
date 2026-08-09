@@ -26,8 +26,9 @@ cron (30分毎) → refreshStreamStatus(全連携チャンネルをバッチポ�
 
 - 特典失効後も既存連携は動作継続(新規追加のみ制限)
 - サブスク判定は 1時間キャッシュ(手動「再確認」で更新可)
-- 配信開始時の通常ポストは全プランでユーザーごとに設定可能(`/settings`、デフォルトON)
-- `BSKY_POST_ON_START` は自動ポスト全体の運用スイッチ。ユーザー設定がONでも、この値が `true` でない場合は投稿しない
+- 配信開始時の通常ポストは全プランでチャンネルごとに設定可能(`/channels`、デフォルトON)
+- 本文は `{title}` / `{category}` / `{channel}` / `{url}` を使って自由に構成できる。タイトル・カテゴリはチャンネルごとに本文へ含めるか選択可能
+- `BSKY_POST_ON_START` は自動ポスト全体の運用スイッチ。チャンネル設定がONでも、この値が `true` でない場合は投稿しない
 
 ### サポートコードの発行手順
 
@@ -41,6 +42,7 @@ npx wrangler d1 execute tw2bs-notif-db --remote --command \
 ```
 
 - `plan_type`: `support` / `patron`(patron が上位。上位コードで下位ライセンスは置換)
+- サポートコードは別サービス [twica](https://twica.bluemoon.works/plans) と共通
 - 同じコードは複数ユーザーが使用可能(各ユーザー1回)。`activation_count` で使用数が分かる
 - 無効化: `UPDATE support_codes SET status = 'inactive' WHERE code_hash = '<hash>'`
 - 一覧: `SELECT memo, plan_type, status, activation_count FROM support_codes`

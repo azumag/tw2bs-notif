@@ -27,6 +27,7 @@ import {
   findConnectionByChannel,
   insertConnection,
   listConnections,
+  updateConnectionPostingSettings,
 } from "./lib/connections";
 import { clearLiveStatus, getSessionForUser } from "./lib/bluesky";
 import {
@@ -51,17 +52,20 @@ import {
 } from "./lib/bsky-oauth";
 import { logError, logInfo } from "./lib/logger";
 import {
-  getPostOnStartEnabled,
-  setPostOnStartEnabled,
-} from "./lib/user-preferences";
+  MAX_POST_TEMPLATE_LENGTH,
+  validatePostTemplate,
+} from "./lib/post-template";
 
 const LOGIN_PATH = "/auth/twitch/login";
 const CALLBACK_PATH = "/auth/twitch/callback";
 const LOGOUT_PATH = "/auth/logout";
+const GUIDE_PATH = "/guide";
+const PRIVACY_PATH = "/privacy";
 const CHANNELS_PATH = "/channels";
 const CHANNELS_CONNECT_PATH = "/channels/connect";
 const CHANNELS_ADD_PATH = "/channels/add";
 const CHANNELS_DISCONNECT_PATH = "/channels/disconnect";
+const CHANNELS_POSTING_PATH = "/channels/posting";
 const SUPPORT_PATH = "/support";
 const SUPPORT_ACTIVATE_PATH = "/support/activate";
 const SUPPORT_DEACTIVATE_PATH = "/support/deactivate";
@@ -69,17 +73,22 @@ const SUB_CHECK_PATH = "/support/check-subscription";
 const SUB_DISABLE_PATH = "/support/disable-subscription";
 const SUB_ENABLE_PATH = "/support/enable-subscription";
 const FANBOX_URL = "https://azumag.fanbox.cc/";
+const TWICA_URL = "https://twica.bluemoon.works/plans";
+const TWITCH_PRIVACY_URL = "https://legal.twitch.com/legal/privacy-notice/";
+const BSKY_PRIVACY_URL = "https://bsky.social/about/support/privacy-policy";
+const CLOUDFLARE_PRIVACY_URL = "https://www.cloudflare.com/privacypolicy/";
+const PRIVACY_CONTACT_URL =
+  "https://github.com/azumag/tw2bs-notif/issues/new";
 const BSKY_LOGIN_PATH = "/auth/bluesky/login";
 const BSKY_CALLBACK_PATH = "/auth/bluesky/callback";
 const BSKY_DISCONNECT_PATH = "/auth/bluesky/disconnect";
 const BSKY_METADATA_PATH = "/oauth-client-metadata.json";
 const SETTINGS_PATH = "/settings";
-const SETTINGS_POSTING_PATH = "/settings/posting";
 const WEBHOOK_SECRET_KEY = "twitch:webhook_secret";
 
 function htmlPage(title: string, body: string): Response {
   return new Response(
-    `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>${title}</title></head><body>${body}</body></html>`,
+    `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title></head><body>${body}<footer><hr><nav aria-label="フッターナビゲーション"><a href="/">トップ</a> · <a href="${GUIDE_PATH}">機能概要・使い方</a> · <a href="${PRIVACY_PATH}">プライバシーポリシー</a></nav></footer></body></html>`,
     { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
   );
 }
@@ -112,12 +121,16 @@ function renderIndex(
   if (!session) {
     return htmlPage(
       "orbsky",
-      `<h1>orbsky</h1><p><a href="${LOGIN_PATH}">Twitchでログイン</a></p>`,
+      `<h1>orbsky</h1>
+       <p>Twitchの配信開始・終了をBlueskyへ自動で反映します。</p>
+       <p><a href="${LOGIN_PATH}">Twitchでログイン</a></p>
+       <p><a href="${GUIDE_PATH}">機能概要・使い方を見る</a></p>`,
     );
   }
   return htmlPage(
     "orbsky",
     `<h1>orbsky</h1><p>ログイン中: ${escapeHtml(session.twitchUserId)}</p>
+     <p><a href="${GUIDE_PATH}">機能概要・使い方</a></p>
      <p><a href="${CHANNELS_PATH}">チャンネル連携の管理</a></p>
      <p><a href="${SUPPORT_PATH}">特典(サポートコード)</a></p>
      <p><a href="${SETTINGS_PATH}">Bluesky連携・自動ポストの設定</a></p>
@@ -125,6 +138,191 @@ function renderIndex(
        <input type="hidden" name="csrf" value="${session.csrf}">
        <button type="submit">ログアウト</button>
      </form>`,
+  );
+}
+
+function renderGuide(
+  session: { twitchUserId: string; csrf: string } | null,
+): Response {
+  const startAction = session
+    ? `<p><a href="${SETTINGS_PATH}">Bluesky連携を設定する</a></p>
+       <p><a href="${CHANNELS_PATH}">チャンネル連携・自動ポストを設定する</a></p>`
+    : `<p><a href="${LOGIN_PATH}">Twitchでログインして始める</a></p>`;
+
+  return htmlPage(
+    "orbsky - 機能概要・使い方",
+    `<h1>orbsky の機能概要・使い方</h1>
+     <p>Twitchで配信を始めたときに、Blueskyのプロフィールへ配信中ステータスを表示し、必要に応じてお知らせを自動投稿するサービスです。</p>
+     <p><a href="/">← トップへ戻る</a></p>
+
+     <h2>orbskyでできること</h2>
+     <ul>
+       <li>Twitchの配信開始を検知し、Blueskyへ配信中バッジとTwitchリンクカードを表示します。</li>
+       <li>配信終了を検知すると、配信中バッジを自動で解除します。</li>
+       <li>配信開始時にBlueskyへ通常のポストを作成するか、チャンネルごとに選べます。</li>
+       <li>ポスト本文、配信タイトル、カテゴリの表示方法をチャンネルごとにカスタマイズできます。</li>
+       <li>特典を有効化すると、複数のTwitchチャンネルを1つのBlueskyアカウントへ連携できます。</li>
+     </ul>
+
+     <h2>使い方</h2>
+     <ol>
+       <li>
+         <h3>1. Twitchでログイン</h3>
+         <p>Twitchアカウントでorbskyへログインします。自分のチャンネル以外を追加する場合も、最初に管理用のTwitchアカウントでログインしてください。</p>
+       </li>
+       <li>
+         <h3>2. Blueskyアカウントを連携</h3>
+         <p><a href="${SETTINGS_PATH}">設定</a>から「Blueskyと連携」を選び、配信中バッジと自動ポストを反映するBlueskyアカウントを選択します。</p>
+       </li>
+       <li>
+         <h3>3. Twitchチャンネルを連携</h3>
+         <p><a href="${CHANNELS_PATH}">チャンネル連携</a>で「自分のチャンネルを連携する」を選びます。連携後は、ページを開いたままにする必要はありません。</p>
+       </li>
+       <li>
+         <h3>4. 自動ポストを設定</h3>
+         <p>連携済みチャンネルごとに、自動ポストのON/OFF、本文フォーマット、配信タイトルとカテゴリを本文へ含めるかを設定して保存します。</p>
+       </li>
+       <li>
+         <h3>5. 配信する</h3>
+         <p>通常どおりTwitchで配信を開始します。orbskyが開始・終了を検知してBlueskyへ反映します。</p>
+       </li>
+     </ol>
+
+     <h2>自動ポスト本文のカスタマイズ</h2>
+     <p>本文フォーマットでは、次の変数を好きな位置に配置できます。</p>
+     <table>
+       <thead><tr><th>変数</th><th>投稿時に入る内容</th></tr></thead>
+       <tbody>
+         <tr><td><code>{title}</code></td><td>現在の配信タイトル</td></tr>
+         <tr><td><code>{category}</code></td><td>現在のTwitchカテゴリ</td></tr>
+         <tr><td><code>{channel}</code></td><td>連携したチャンネル名</td></tr>
+         <tr><td><code>{url}</code></td><td>連携したTwitchチャンネルのURL</td></tr>
+       </tbody>
+     </table>
+     <p>例:</p>
+     <pre><code>🔴 {channel} が配信を始めました
+{title}
+カテゴリ: {category}
+{url}</code></pre>
+     <p>「配信タイトルをポスト本文に含める」「カテゴリをポスト本文に含める」のチェックを外すと、対応する変数は空になります。</p>
+
+     <h2>無料利用と特典</h2>
+     <table>
+       <thead><tr><th>利用状態</th><th>連携できるTwitchチャンネル</th><th>自動ポスト設定</th></tr></thead>
+       <tbody>
+         <tr><td>無料</td><td>1チャンネル</td><td>利用可能</td></tr>
+         <tr><td>サポート特典</td><td>複数チャンネル</td><td>各チャンネルで利用可能</td></tr>
+       </tbody>
+     </table>
+     <p>複数チャンネル連携は、<a href="${SUPPORT_PATH}">特典ページ</a>でFANBOXサポートコードまたはTwitchサブスク特典を有効化すると利用できます。</p>
+     <p>サポートコードは、別サービス <a href="${TWICA_URL}" target="_blank" rel="noopener noreferrer">twica</a> と同一のものをご利用いただけます。</p>
+
+     <h2>知っておきたいこと</h2>
+     <ul>
+       <li>自動ポストをOFFにしても、Blueskyの配信中バッジは反映されます。</li>
+       <li>Blueskyが未連携の場合、配信中バッジと自動ポストは反映されません。</li>
+       <li>設定はチャンネルごとに保存されるため、複数チャンネルで別々の本文を使えます。</li>
+     </ul>
+
+     <h2>orbskyを始める</h2>
+     ${startAction}`,
+  );
+}
+
+function renderPrivacy(): Response {
+  return htmlPage(
+    "orbsky - プライバシーポリシー",
+    `<h1>プライバシーポリシー</h1>
+     <p>最終更新日: 2026年8月9日</p>
+     <p>orbsky（以下「本サービス」）は、Twitchの配信状態をBlueskyへ反映するために必要な範囲で、利用者に関する情報を取り扱います。</p>
+     <p><a href="/">← トップへ戻る</a></p>
+
+     <h2>1. 取得・保存する情報</h2>
+     <h3>Twitchに関する情報</h3>
+     <ul>
+       <li>TwitchユーザーID、ユーザー名、表示名、プロフィール画像URL</li>
+       <li>OAuthアクセストークン、リフレッシュトークン、認可スコープ、有効期限</li>
+       <li>サブスク特典の判定結果、確認日時、確認機能の設定</li>
+       <li>連携したTwitchチャンネルのID、ユーザー名、表示名</li>
+     </ul>
+     <p>Twitch認証では <code>user:read:email</code> と <code>user:read:subscriptions</code> の権限を要求しますが、本サービスはTwitchアカウントのメールアドレスを保存しません。</p>
+
+     <h3>Blueskyに関する情報</h3>
+     <ul>
+       <li>BlueskyアカウントのDID</li>
+       <li>配信中ステータスと投稿を操作するためのOAuthセッション情報</li>
+     </ul>
+     <p>本サービスが要求するBlueskyの権限は、配信中ステータスとフィード投稿の作成に限定しています。Blueskyのパスワードは取得・保存しません。</p>
+
+     <h3>設定・特典に関する情報</h3>
+     <ul>
+       <li>チャンネルごとの自動ポストON/OFF、本文テンプレート、タイトル・カテゴリの使用設定</li>
+       <li>サポートコードまたはTwitchサブスクによる特典の有効化状態、プラン、日時</li>
+     </ul>
+     <p>入力されたサポートコードはハッシュ値で照合し、平文のコードを保存しません。また、コードをFANBOXやtwicaへ送信することはありません。</p>
+
+     <h3>技術情報</h3>
+     <ul>
+       <li>ログイン維持に必要なセッションクッキー</li>
+       <li>OAuth認証に必要な一時的なstate情報</li>
+       <li>アクセス日時、処理対象のアカウント・チャンネル識別子、処理結果、エラーなどの運用ログ</li>
+     </ul>
+     <p>本サービスは広告配信や行動追跡を目的としたCookie、アクセス解析ツールを使用していません。</p>
+
+     <h2>2. 利用目的</h2>
+     <ul>
+       <li>利用者の認証とログイン状態の維持</li>
+       <li>TwitchチャンネルとBlueskyアカウントの連携</li>
+       <li>配信開始・終了の検知、配信中ステータスの表示・解除、自動ポスト</li>
+       <li>チャンネル別設定、サポート特典、マルチチャンネル機能の提供</li>
+       <li>不正利用の防止、障害調査、セキュリティ確保、サービス改善</li>
+       <li>法令上必要な対応</li>
+     </ul>
+
+     <h2>3. 公開される情報</h2>
+     <p>利用者がBluesky連携を有効にすると、配信中ステータス、Twitchチャンネルへのリンク、および設定に応じた自動ポストがBlueskyとAT Protocolネットワーク上で公開されます。投稿本文には、設定に応じてTwitchの配信タイトル、カテゴリ、チャンネル名、URLが含まれます。</p>
+
+     <h2>4. Cookieと保存期間</h2>
+     <ul>
+       <li>ログインセッションは最長30日で失効します。</li>
+       <li>OAuth認証用の一時情報は原則10分で失効します。</li>
+       <li>アカウント連携、設定、特典情報は、機能提供・運用に必要な期間または削除依頼へ対応するまで保存します。</li>
+       <li>運用ログは、障害調査とセキュリティ確保に必要な期間保存します。</li>
+     </ul>
+     <p>ログアウトはブラウザのログインセッションのみを削除し、アカウント連携や設定情報は削除しません。</p>
+
+     <h2>5. 外部サービスと国外での取扱い</h2>
+     <p>本サービスは、機能提供のために次の外部サービスを利用します。これらの事業者や関連するインフラにより、日本国外で情報が処理・保存される場合があります。</p>
+     <ul>
+       <li><a href="${TWITCH_PRIVACY_URL}" target="_blank" rel="noopener noreferrer">Twitch</a>: ログイン、アカウント・配信情報、EventSub、サブスク判定</li>
+       <li><a href="${BSKY_PRIVACY_URL}" target="_blank" rel="noopener noreferrer">Bluesky / AT Protocol</a>: OAuth認証、配信中ステータス、自動ポスト</li>
+       <li><a href="${CLOUDFLARE_PRIVACY_URL}" target="_blank" rel="noopener noreferrer">Cloudflare</a>: ホスティング、データベース、KV、Queue、運用ログ</li>
+     </ul>
+     <p>各外部サービスでの情報の取扱いは、それぞれのプライバシーポリシーもご確認ください。</p>
+
+     <h2>6. 第三者提供</h2>
+     <p>本サービスは、個人情報を販売しません。機能提供に必要な外部サービスへの送信、利用者本人の操作に基づく公開、法令に基づく場合を除き、本人の同意なく第三者へ提供しません。</p>
+
+     <h2>7. 安全管理</h2>
+     <p>OAuthトークンとBlueskyセッションは暗号化して保存します。また、HTTPS、HttpOnly・Secure属性を付けたセッションクッキー、CSRF対策、必要最小限のOAuth権限などを用いて情報を保護します。ただし、インターネット上の通信・保存について完全な安全性を保証するものではありません。</p>
+
+     <h2>8. 利用者による管理・削除</h2>
+     <ul>
+       <li>自動ポストは、チャンネルごとに停止できます。</li>
+       <li>チャンネル連携、Bluesky連携、サポート特典は各設定画面から解除できます。</li>
+       <li>保存情報の確認、訂正、利用停止、アカウントデータの削除を希望する場合は、下記窓口へご連絡ください。</li>
+     </ul>
+
+     <h2>9. 未成年者の利用</h2>
+     <p>未成年者は、TwitchおよびBlueskyの利用条件に従い、必要な場合は保護者の同意を得たうえで本サービスを利用してください。</p>
+
+     <h2>10. ポリシーの変更</h2>
+     <p>機能、法令、外部サービスの変更などに応じて本ポリシーを改定することがあります。重要な変更がある場合は、本サービス上で分かりやすくお知らせします。</p>
+
+     <h2>11. お問い合わせ</h2>
+     <p>運営者: azumag</p>
+     <p><a href="${PRIVACY_CONTACT_URL}" target="_blank" rel="noopener noreferrer">GitHubの問い合わせ窓口</a></p>
+     <p>問い合わせページは公開されます。OAuthトークン、サポートコード、メールアドレスなどの秘密情報・個人情報は書き込まないでください。</p>`,
   );
 }
 
@@ -198,20 +396,45 @@ async function handleChannels(
     return new Response(null, { status: 302, headers: { Location: "/" } });
   }
   const connections = await listConnections(env, session.twitchUserId);
+  const postingSaved =
+    new URL(request.url).searchParams.get("posting") === "saved";
   const canUseMultiChannel = await hasActiveEntitlement(
     env,
     session.twitchUserId,
   );
   const rows = connections
-    .map(
-      (c) =>
-        `<li>${escapeHtml(c.twitchDisplayName)} (@${escapeHtml(c.twitchLogin)})
-         <form method="post" action="${CHANNELS_DISCONNECT_PATH}" style="display:inline">
+    .map((c) => {
+      const suffix = String(c.id);
+      return `<li id="channel-${suffix}">
+         <h3>${escapeHtml(c.twitchDisplayName)} (@${escapeHtml(c.twitchLogin)})</h3>
+         <form method="post" action="${CHANNELS_POSTING_PATH}">
+           <input type="hidden" name="csrf" value="${session.csrf}">
+           <input type="hidden" name="connection_id" value="${c.id}">
+           <p><label>
+             <input type="checkbox" name="post_on_start" value="1"${c.postOnStart ? " checked" : ""}>
+             配信開始時にBlueskyへポストする
+           </label></p>
+           <p><label for="post_template_${suffix}">ポスト本文のフォーマット</label><br>
+             <textarea id="post_template_${suffix}" name="post_template" rows="5" cols="60" maxlength="${MAX_POST_TEMPLATE_LENGTH}" required>${escapeHtml(c.postTemplate)}</textarea>
+           </p>
+           <p><label>
+             <input type="checkbox" name="include_title" value="1"${c.postIncludeTitle ? " checked" : ""}>
+             配信タイトルをポスト本文に含める
+           </label></p>
+           <p><label>
+             <input type="checkbox" name="include_category" value="1"${c.postIncludeCategory ? " checked" : ""}>
+             カテゴリをポスト本文に含める
+           </label></p>
+           <p><small>利用できる変数: {title} (配信タイトル)、{category} (カテゴリ)、{channel} (チャンネル名)、{url} (Twitch URL)。タイトルとカテゴリのチェックを外すと、対応する変数は空になります。</small></p>
+           <button type="submit">このチャンネルの投稿設定を保存</button>
+         </form>
+         <form method="post" action="${CHANNELS_DISCONNECT_PATH}">
            <input type="hidden" name="csrf" value="${session.csrf}">
            <input type="hidden" name="connection_id" value="${c.id}">
            <button type="submit">解除</button>
-         </form></li>`,
-    )
+         </form>
+         </li>`;
+    })
     .join("");
   const multiChannelSettings = canUseMultiChannel
     ? `<p>ご自身が管理している別のTwitchチャンネルのユーザー名を入力してください。</p>
@@ -228,7 +451,9 @@ async function handleChannels(
     `<h1>チャンネル連携</h1>
      <p>ログイン中: ${escapeHtml(session.twitchUserId)}</p>
      <p><a href="/">← 戻る</a></p>
+     ${postingSaved ? "<p><strong>チャンネルの自動ポスト設定を保存しました。</strong></p>" : ""}
      <h2>連携済みチャンネル</h2>
+     <p>自動ポストのON/OFF、本文、配信タイトル・カテゴリの使用をチャンネルごとに設定できます。この機能はすべてのプランで利用できます。</p>
      <ul>${rows || "<li>(なし)</li>"}</ul>
      <h2>チャンネルを連携</h2>
      <form method="post" action="${CHANNELS_CONNECT_PATH}">
@@ -488,6 +713,7 @@ async function handleSupport(
      <p>azumagのFANBOXで支援してくださった方へ、サポートコードをお届けしています。</p>
      <p>支援後、FANBOXのメッセージまたは支援者向け投稿でコードを確認し、下のフォームへ入力してください。</p>
      <p><a href="${FANBOX_URL}" target="_blank" rel="noopener noreferrer">azumagのFANBOXを見る</a></p>
+     <p>サポートコードは、別サービス <a href="${TWICA_URL}" target="_blank" rel="noopener noreferrer">twica</a> と同一のものをご利用いただけます。</p>
      <h2>現在の特典</h2>
      <ul>${rows || "<li>(なし)</li>"}</ul>
      <h2>Twitchサブスク(azumagbanjo)</h2>
@@ -683,7 +909,7 @@ async function handleBskyDisconnect(
   return new Response(null, { status: 302, headers: { Location: SETTINGS_PATH } });
 }
 
-async function handlePostingSettings(
+async function handleChannelPostingSettings(
   request: Request,
   env: AppEnv,
 ): Promise<Response> {
@@ -693,35 +919,59 @@ async function handlePostingSettings(
   if (!session || csrf !== session.csrf) {
     return htmlPage("エラー", "<p>無効なリクエストです。</p>");
   }
-  const enabled = form?.get("post_on_start") === "1";
+  const connectionIdRaw = form?.get("connection_id");
+  const connectionId =
+    typeof connectionIdRaw === "string" ? Number(connectionIdRaw) : NaN;
+  const postTemplateRaw = form?.get("post_template");
+  const postTemplate =
+    typeof postTemplateRaw === "string" ? postTemplateRaw.trim() : "";
+  if (!Number.isSafeInteger(connectionId) || connectionId <= 0) {
+    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+  }
+  const templateError = validatePostTemplate(postTemplate);
+  if (templateError) {
+    return htmlPage(
+      "エラー",
+      `<p>${escapeHtml(templateError)}</p><p><a href="${CHANNELS_PATH}#channel-${connectionId}">戻る</a></p>`,
+    );
+  }
   try {
-    const updated = await setPostOnStartEnabled(
+    const updated = await updateConnectionPostingSettings(
       env,
       session.twitchUserId,
-      enabled,
+      connectionId,
+      {
+        postOnStart: form?.get("post_on_start") === "1",
+        postTemplate,
+        postIncludeTitle: form?.get("include_title") === "1",
+        postIncludeCategory: form?.get("include_category") === "1",
+      },
     );
     if (!updated) {
       return htmlPage(
         "エラー",
-        "<p>ユーザー設定を保存できませんでした。再ログインしてお試しください。</p>",
+        "<p>チャンネル設定を保存できませんでした。連携状態を確認してください。</p>",
       );
     }
-    logInfo("settings", "updated post-on-start preference", {
+    logInfo("settings", "updated channel posting preference", {
       userId: session.twitchUserId,
-      enabled,
+      connectionId,
     });
     return new Response(null, {
       status: 302,
-      headers: { Location: `${SETTINGS_PATH}?posting=saved` },
+      headers: {
+        Location: `${CHANNELS_PATH}?posting=saved#channel-${connectionId}`,
+      },
     });
   } catch (err) {
-    logError("settings", "post-on-start preference update failed", err, {
+    logError("settings", "channel posting preference update failed", err, {
       userId: session.twitchUserId,
+      connectionId,
     });
     return htmlPage(
       "エラー",
       `<p>設定の保存に失敗しました。</p>
-       <p><a href="${SETTINGS_PATH}">戻る</a></p>`,
+       <p><a href="${CHANNELS_PATH}#channel-${connectionId}">戻る</a></p>`,
     );
   }
 }
@@ -734,12 +984,7 @@ async function handleSettings(
   if (!session) {
     return new Response(null, { status: 302, headers: { Location: "/" } });
   }
-  const [did, postOnStartEnabled] = await Promise.all([
-    getBskyDidForUser(env, session.twitchUserId),
-    getPostOnStartEnabled(env, session.twitchUserId),
-  ]);
-  const postingSaved =
-    new URL(request.url).searchParams.get("posting") === "saved";
+  const did = await getBskyDidForUser(env, session.twitchUserId);
   const body = did
     ? `<h2>Bluesky連携</h2>
        <p>連携中: ${escapeHtml(did)}</p>
@@ -755,19 +1000,10 @@ async function handleSettings(
     "orbsky - 設定",
     `<h1>設定</h1>
      <p><a href="/">← 戻る</a></p>
-     ${postingSaved ? "<p><strong>自動ポスト設定を保存しました。</strong></p>" : ""}
      ${body}
      <h2>配信開始時の自動ポスト</h2>
-     <p>配信開始時に、連携中のBlueskyアカウントへ通常のポストを作成するか選べます。配信中バッジはこの設定に関係なく反映されます。</p>
-     <form method="post" action="${SETTINGS_POSTING_PATH}">
-       <input type="hidden" name="csrf" value="${session.csrf}">
-       <p><label>
-           <input type="checkbox" name="post_on_start" value="1"${postOnStartEnabled ? " checked" : ""}>
-           配信開始時にBlueskyへポストする
-       </label></p>
-       <button type="submit">自動ポスト設定を保存</button>
-     </form>
-     <p>現在: <strong>${postOnStartEnabled ? "ON" : "OFF"}</strong></p>
+     <p>自動ポストのON/OFFと本文は、連携しているTwitchチャンネルごとに設定できます。配信中バッジは自動ポスト設定に関係なく反映されます。</p>
+     <p><a href="${CHANNELS_PATH}">チャンネル別の自動ポスト設定を開く</a></p>
      <p><small>この設定はすべてのプランで利用できます。</small></p>`,
   );
 }
@@ -792,6 +1028,13 @@ export default {
     if (url.pathname === LOGOUT_PATH && request.method === "POST") {
       return handleLogout(request, env);
     }
+    if (url.pathname === PRIVACY_PATH && request.method === "GET") {
+      return renderPrivacy();
+    }
+    if (url.pathname === GUIDE_PATH && request.method === "GET") {
+      const session = await getSession(env, request);
+      return renderGuide(session);
+    }
     if (url.pathname === CHANNELS_PATH && request.method === "GET") {
       return handleChannels(request, env);
     }
@@ -803,6 +1046,9 @@ export default {
     }
     if (url.pathname === CHANNELS_DISCONNECT_PATH && request.method === "POST") {
       return handleDisconnectChannel(request, env);
+    }
+    if (url.pathname === CHANNELS_POSTING_PATH && request.method === "POST") {
+      return handleChannelPostingSettings(request, env);
     }
     if (url.pathname === SUPPORT_PATH && request.method === "GET") {
       return handleSupport(request, env);
@@ -837,9 +1083,6 @@ export default {
     }
     if (url.pathname === BSKY_DISCONNECT_PATH && request.method === "POST") {
       return handleBskyDisconnect(request, env);
-    }
-    if (url.pathname === SETTINGS_POSTING_PATH && request.method === "POST") {
-      return handlePostingSettings(request, env);
     }
     if (url.pathname === SETTINGS_PATH && request.method === "GET") {
       return handleSettings(request, env);

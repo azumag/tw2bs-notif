@@ -228,6 +228,25 @@ describe("createStreamPost", () => {
     expect(record.embed.external.description).toBe("");
   });
 
+  it("uses a channel-specific custom post body", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    mockFetch({
+      "pds.test/xrpc/com.atproto.repo.createRecord": async (_url, init) => {
+        postedBody = JSON.parse(String(init?.body));
+        return jsonResponse({ uri: "at://...", cid: "post-cid" });
+      },
+    });
+
+    await createStreamPost(makeSession(), {
+      uri: "https://www.twitch.tv/azumagbanjo",
+      title: "テスト配信",
+      text: "あずまぐが配信を開始しました！",
+    });
+
+    const record = postedBody?.record as { text: string };
+    expect(record.text).toBe("あずまぐが配信を開始しました！");
+  });
+
   it("propagates API errors", async () => {
     mockFetch({
       "pds.test/xrpc/com.atproto.repo.createRecord": async () =>

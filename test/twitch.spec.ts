@@ -313,6 +313,7 @@ describe("getStreamState", () => {
               broadcaster_user_id: "12345",
               started_at: "2026-08-07T00:00:00Z",
               title: "テスト配信",
+              game_name: "Music",
               user_login: "cool_user",
             },
           ],
@@ -325,6 +326,7 @@ describe("getStreamState", () => {
       id: "stream-1",
       startedAt: "2026-08-07T00:00:00Z",
       title: "テスト配信",
+      gameName: "Music",
       userLogin: "cool_user",
     });
   });

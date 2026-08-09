@@ -49,6 +49,7 @@ export const BSKY_CLIENT_METADATA: OAuthClientMetadataInput = {
   application_type: "web",
   client_name: "orbsky",
   client_uri: "https://orbsky.bluemoon.works",
+  policy_uri: "https://orbsky.bluemoon.works/privacy",
   redirect_uris: [REDIRECT_URI],
   grant_types: ["authorization_code", "refresh_token"],
   response_types: ["code"],
