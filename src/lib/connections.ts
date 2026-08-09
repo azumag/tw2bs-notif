@@ -97,9 +97,10 @@ export async function insertConnection(
   userId: string,
   channel: { id: string; login: string; displayName: string },
 ): Promise<void> {
+  // 自動ポストは連携直後はOFFで始める(内容を確認してから有効化してもらう)。
   await env.DB.prepare(
-    `INSERT INTO connections (user_id, twitch_channel_id, twitch_login, twitch_display_name)
-     VALUES (?, ?, ?, ?)
+    `INSERT INTO connections (user_id, twitch_channel_id, twitch_login, twitch_display_name, post_on_start)
+     VALUES (?, ?, ?, ?, 0)
      ON CONFLICT (user_id, twitch_channel_id) DO NOTHING`,
   )
     .bind(userId, channel.id, channel.login, channel.displayName)

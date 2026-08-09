@@ -69,7 +69,7 @@ const PAGE_SCRIPT = `(() => {
   const panels = Array.from(document.querySelectorAll("[data-channel-panel]"));
   const previewText = document.querySelector("[data-preview-text]");
   const previewChannel = document.querySelector("[data-preview-channel]");
-  const previewState = document.querySelector("[data-preview-state]");
+  const postPreview = document.querySelector("[data-post-preview]");
 
   const replaceAll = (value, token, replacement) => value.split(token).join(replacement);
   const updatePreview = (panel) => {
@@ -78,7 +78,14 @@ const PAGE_SCRIPT = `(() => {
     if (!(form instanceof HTMLFormElement)) return;
     const textarea = form.querySelector("[data-post-template]");
     const postOnStart = form.querySelector("[data-post-on-start]");
+    const postingFields = form.querySelector("[data-posting-fields]");
     if (!(textarea instanceof HTMLTextAreaElement)) return;
+
+    // OFFの間は、投稿文の編集欄とプレビューをたたんで隠す。
+    // ONにした瞬間にどちらも開く(まだ保存前でも見た目はすぐ反映)。
+    const enabled = postOnStart instanceof HTMLInputElement && postOnStart.checked;
+    if (postingFields instanceof HTMLElement) postingFields.hidden = !enabled;
+    if (postPreview instanceof HTMLElement) postPreview.hidden = !enabled;
 
     let rendered = textarea.value;
     rendered = replaceAll(rendered, "{title}", "週末の雑談配信");
@@ -89,11 +96,6 @@ const PAGE_SCRIPT = `(() => {
 
     if (previewText) previewText.textContent = rendered || "配信開始しました";
     if (previewChannel) previewChannel.textContent = "@" + (panel.dataset.channelLogin || "channel");
-    if (previewState) {
-      const enabled = postOnStart instanceof HTMLInputElement && postOnStart.checked;
-      previewState.textContent = enabled ? "配信開始時に投稿されます" : "自動ポストはオフです";
-      previewState.classList.toggle("is-off", !enabled);
-    }
   };
 
   const activatePanel = (panelId) => {
@@ -589,6 +591,11 @@ pre code { padding: 0; background: transparent; }
   align-items: start;
 }
 
+/* プレビューが(自動ポストOFFで)畳まれている間はエディタを全幅にする */
+.channel-workspace:has(.post-preview[hidden]) {
+  grid-template-columns: 1fr;
+}
+
 .channel-panel {
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -763,7 +770,6 @@ pre code { padding: 0; background: transparent; }
 .preview-text { min-height: 104px; margin: 0.85rem 0; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .preview-meta { border-top: 1px solid var(--border); color: var(--muted); padding-top: 0.75rem; font-size: 0.78rem; }
 .preview-state { border: 1px solid color-mix(in srgb, var(--sky) 25%, var(--border)); border-radius: 9px; background: var(--sky-soft); color: var(--sky); margin-top: 1rem; padding: 0.65rem 0.8rem; font-size: 0.82rem; font-weight: 650; }
-.preview-state.is-off { border-color: var(--border); background: var(--surface-soft); color: var(--muted); }
 
 .notice {
   border: 1px solid color-mix(in srgb, var(--success) 30%, var(--border));

@@ -582,20 +582,22 @@ async function handleChannels(
                  data-post-on-start>
              </label>
            </div>
-           <p class="panel-intro">配信開始を検知したときに、Blueskyへ投稿します。</p>
-           <div class="field">
-             <label for="post_template_${suffix}">投稿文</label>
-             <textarea id="post_template_${suffix}" name="post_template" rows="6" maxlength="${MAX_POST_TEMPLATE_LENGTH}"
-               data-post-template required>${escapeHtml(c.postTemplate)}</textarea>
-           </div>
-           <div class="variable-group">
-             <strong class="section-label">差し込み項目</strong>
-             <span class="help-text">投稿文に含めたい項目だけをタップして挿入してください。不要な項目は本文から削除すれば投稿に含まれません。</span>
-             <div class="variable-buttons">
-               <button class="variable-chip" type="button" data-insert-token="{title}">{title}<span>タイトル</span></button>
-               <button class="variable-chip" type="button" data-insert-token="{category}">{category}<span>カテゴリ</span></button>
-               <button class="variable-chip" type="button" data-insert-token="{channel}">{channel}<span>チャンネル</span></button>
-               <button class="variable-chip" type="button" data-insert-token="{url}">{url}<span>URL</span></button>
+           <p class="panel-intro">自動ポストをONにすると、配信開始を検知したときにBlueskyへ投稿します。</p>
+           <div class="posting-fields"${c.postOnStart ? "" : " hidden"} data-posting-fields>
+             <div class="field">
+               <label for="post_template_${suffix}">投稿文</label>
+               <textarea id="post_template_${suffix}" name="post_template" rows="6" maxlength="${MAX_POST_TEMPLATE_LENGTH}"
+                 data-post-template required>${escapeHtml(c.postTemplate)}</textarea>
+             </div>
+             <div class="variable-group">
+               <strong class="section-label">差し込み項目</strong>
+               <span class="help-text">投稿文に含めたい項目だけをタップして挿入してください。不要な項目は本文から削除すれば投稿に含まれません。</span>
+               <div class="variable-buttons">
+                 <button class="variable-chip" type="button" data-insert-token="{title}">{title}<span>タイトル</span></button>
+                 <button class="variable-chip" type="button" data-insert-token="{category}">{category}<span>カテゴリ</span></button>
+                 <button class="variable-chip" type="button" data-insert-token="{channel}">{channel}<span>チャンネル</span></button>
+                 <button class="variable-chip" type="button" data-insert-token="{url}">{url}<span>URL</span></button>
+               </div>
              </div>
            </div>
            <div class="action-row">
@@ -659,7 +661,7 @@ async function handleChannels(
        <div class="channel-tabs" role="tablist" aria-label="連携済みチャンネル">${tabs}</div>` : ""}
        <div class="channel-workspace">
          <div>${panels}</div>
-         <aside class="post-preview" aria-live="polite">
+         <aside class="post-preview"${connections[0]?.postOnStart ? "" : " hidden"} data-post-preview aria-live="polite">
            <h2>投稿プレビュー</h2>
            <div class="preview-card">
              <div class="preview-author">
@@ -669,7 +671,7 @@ async function handleChannels(
              <div class="preview-text" data-preview-text>設定した投稿内容がここに表示されます。</div>
              <div class="preview-meta">Blueskyへの公開ポスト</div>
            </div>
-           <div class="preview-state" data-preview-state>配信開始時に投稿されます</div>
+           <div class="preview-state">配信開始時に投稿されます</div>
          </aside>
        </div>`
     : "";
@@ -1337,6 +1339,13 @@ async function handleSettings(
          <span class="compact-status is-success">連携済み</span>
        </div>
        <p>このアカウントへ、配信中ステータスと自動ポストを反映します。</p>
+       <div class="next-action">
+         <div>
+           <strong>🔴 配信中バッジ</strong>
+           <span>配信を始めると、このアカウントのBlueskyプロフィールに自動で表示されます</span>
+         </div>
+         <span class="compact-status is-success">有効</span>
+       </div>
        <details class="inline-disclosure">
          <summary>連携アカウントを管理</summary>
          <p class="help-text">DID: ${escapeHtml(did)}</p>

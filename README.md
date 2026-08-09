@@ -13,7 +13,7 @@ Twitch 配信開始を EventSub で検知し、Bluesky の streaming status(`app
 - プライバシーポリシー(/privacy): 取得情報、利用目的、保存期間、外部サービス、削除方法を公開
 - チャンネル連携(/channels): 自分のチャンネルを登録 → 配信開始/終了を Bluesky に反映
   - 配信中バッジ + twitch.tv リンクカード(embed)
-  - 配信開始時の通常ポストは `/channels` でチャンネルごとにON/OFF可能(全プラン、デフォルトON)
+  - 配信開始時の通常ポストは `/channels` でチャンネルごとにON/OFF可能(全プラン、連携直後はデフォルトOFF)
   - ポスト本文は `{title}` / `{category}` / `{channel}` / `{url}` を使ってチャンネルごとにカスタマイズ可能
   - `BSKY_POST_ON_START` は運用上の全体スイッチ
   - 4時間超の配信は cron(30分毎)が record を再書き込みして継続
