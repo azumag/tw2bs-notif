@@ -235,6 +235,11 @@ describe("チャンネル連携ページ", () => {
     expect(body).toContain("{channel}");
     expect(body).toContain("{url}");
     expect(body).toContain("すべてのプランで利用できます");
+    expect(body).toContain('class="page-shell channels-page"');
+    expect(body).toContain("data-channel-tab");
+    expect(body).toContain("data-posting-form");
+    expect(body).toContain("data-preview-text");
+    expect(body).toContain('role="switch"');
   });
 
   it("無料ユーザーでもチャンネル別の本文・タイトル・カテゴリ設定を保存できる", async () => {

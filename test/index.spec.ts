@@ -27,6 +27,9 @@ describe("tw2bs-notif worker", () => {
     expect(body).toContain("Twitchでログイン");
     expect(body).toContain('href="/guide"');
     expect(body).toContain('href="/privacy"');
+    expect(body).toContain("data-theme-toggle");
+    expect(body).toContain('localStorage.getItem("orbsky-theme")');
+    expect(body).toContain("prefers-color-scheme: dark");
   });
 
   it("ログイン前でも機能概要・使い方ページを読める", async () => {
@@ -43,6 +46,7 @@ describe("tw2bs-notif worker", () => {
     expect(body).toContain("twica");
     expect(body).toContain('href="https://twica.bluemoon.works/plans"');
     expect(body).toContain('href="/privacy"');
+    expect(body).toContain("data-theme-toggle");
   });
 
   it("ログイン前でもプライバシーポリシーを読める", async () => {

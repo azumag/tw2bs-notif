@@ -55,6 +55,7 @@ import {
   MAX_POST_TEMPLATE_LENGTH,
   validatePostTemplate,
 } from "./lib/post-template";
+import { renderHtmlPage, type PageOptions } from "./ui";
 
 const LOGIN_PATH = "/auth/twitch/login";
 const CALLBACK_PATH = "/auth/twitch/callback";
@@ -86,9 +87,13 @@ const BSKY_METADATA_PATH = "/oauth-client-metadata.json";
 const SETTINGS_PATH = "/settings";
 const WEBHOOK_SECRET_KEY = "twitch:webhook_secret";
 
-function htmlPage(title: string, body: string): Response {
+function htmlPage(
+  title: string,
+  body: string,
+  options: PageOptions = {},
+): Response {
   return new Response(
-    `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title></head><body>${body}<footer><hr><nav aria-label="フッターナビゲーション"><a href="/">トップ</a> · <a href="${GUIDE_PATH}">機能概要・使い方</a> · <a href="${PRIVACY_PATH}">プライバシーポリシー</a></nav></footer></body></html>`,
+    renderHtmlPage(title, body, options),
     { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
   );
 }
@@ -121,23 +126,57 @@ function renderIndex(
   if (!session) {
     return htmlPage(
       "orbsky",
-      `<h1>orbsky</h1>
-       <p>Twitchの配信開始・終了をBlueskyへ自動で反映します。</p>
-       <p><a href="${LOGIN_PATH}">Twitchでログイン</a></p>
-       <p><a href="${GUIDE_PATH}">機能概要・使い方を見る</a></p>`,
+      `<section class="hero">
+         <div>
+           <span class="hero-kicker">Twitch × Bluesky</span>
+           <h1>配信の始まりを、Blueskyへ。</h1>
+           <p class="hero-lead">Twitchの配信開始・終了を検知して、Blueskyの配信中ステータスとお知らせ投稿へ自動で反映します。</p>
+           <div class="hero-actions">
+             <a class="button" href="${LOGIN_PATH}">Twitchでログイン</a>
+             <a class="button button-secondary" href="${GUIDE_PATH}">機能概要・使い方を見る</a>
+           </div>
+         </div>
+         <aside class="hero-summary" aria-label="利用開始までの流れ">
+           <h2>3ステップで始められます</h2>
+           <ol>
+             <li>Twitchアカウントでログイン</li>
+             <li>投稿先のBlueskyを選択</li>
+             <li>チャンネルごとに投稿内容を設定</li>
+           </ol>
+         </aside>
+       </section>`,
     );
   }
   return htmlPage(
     "orbsky",
-    `<h1>orbsky</h1><p>ログイン中: ${escapeHtml(session.twitchUserId)}</p>
-     <p><a href="${GUIDE_PATH}">機能概要・使い方</a></p>
-     <p><a href="${CHANNELS_PATH}">チャンネル連携の管理</a></p>
-     <p><a href="${SUPPORT_PATH}">特典(サポートコード)</a></p>
-     <p><a href="${SETTINGS_PATH}">Bluesky連携・自動ポストの設定</a></p>
-     <form method="post" action="${LOGOUT_PATH}">
+    `<section class="dashboard">
+       <span class="status-badge is-success">Twitchログイン済み</span>
+       <h1>配信のお知らせを設定</h1>
+       <p>TwitchチャンネルとBlueskyの連携、配信開始時の投稿内容をここから管理できます。</p>
+       <div class="dashboard-actions">
+         <a class="dashboard-action" href="${CHANNELS_PATH}">
+           <strong>チャンネルと投稿設定</strong>
+           <span>連携チャンネル、自動ポスト、投稿本文を管理</span>
+         </a>
+         <a class="dashboard-action" href="${SETTINGS_PATH}">
+           <strong>Bluesky連携</strong>
+           <span>投稿先のBlueskyアカウントを接続・解除</span>
+         </a>
+         <a class="dashboard-action" href="${SUPPORT_PATH}">
+           <strong>特典とマルチチャンネル</strong>
+           <span>サポートコードやTwitchサブスクを確認</span>
+         </a>
+       </div>
+       <div class="content-card">
+         <h2>使い方を確認する</h2>
+         <p>初めて設定する場合は、連携から配信開始までの流れを<a href="${GUIDE_PATH}">機能概要・使い方</a>で確認できます。</p>
+       </div>
+       <form class="logout-form" method="post" action="${LOGOUT_PATH}">
        <input type="hidden" name="csrf" value="${session.csrf}">
-       <button type="submit">ログアウト</button>
-     </form>`,
+       <button class="button-secondary" type="submit">ログアウト</button>
+       </form>
+     </section>`,
+    { session },
   );
 }
 
@@ -145,52 +184,52 @@ function renderGuide(
   session: { twitchUserId: string; csrf: string } | null,
 ): Response {
   const startAction = session
-    ? `<p><a href="${SETTINGS_PATH}">Bluesky連携を設定する</a></p>
-       <p><a href="${CHANNELS_PATH}">チャンネル連携・自動ポストを設定する</a></p>`
-    : `<p><a href="${LOGIN_PATH}">Twitchでログインして始める</a></p>`;
+    ? `<div class="hero-actions"><a class="button" href="${SETTINGS_PATH}">Bluesky連携を設定する</a>
+       <a class="button button-secondary" href="${CHANNELS_PATH}">チャンネル連携・自動ポストを設定する</a></div>`
+    : `<div class="hero-actions"><a class="button" href="${LOGIN_PATH}">Twitchでログインして始める</a></div>`;
 
   return htmlPage(
     "orbsky - 機能概要・使い方",
-    `<h1>orbsky の機能概要・使い方</h1>
-     <p>Twitchで配信を始めたときに、Blueskyのプロフィールへ配信中ステータスを表示し、必要に応じてお知らせを自動投稿するサービスです。</p>
-     <p><a href="/">← トップへ戻る</a></p>
+    `<article class="content-page wide">
+     <a class="back-link" href="/">トップへ戻る</a>
+     <h1>orbsky の機能概要・使い方</h1>
+     <p class="lead">Twitchで配信を始めたときに、Blueskyのプロフィールへ配信中ステータスを表示し、必要に応じてお知らせを自動投稿するサービスです。</p>
 
      <h2>orbskyでできること</h2>
-     <ul>
-       <li>Twitchの配信開始を検知し、Blueskyへ配信中バッジとTwitchリンクカードを表示します。</li>
-       <li>配信終了を検知すると、配信中バッジを自動で解除します。</li>
-       <li>配信開始時にBlueskyへ通常のポストを作成するか、チャンネルごとに選べます。</li>
-       <li>ポスト本文、配信タイトル、カテゴリの表示方法をチャンネルごとにカスタマイズできます。</li>
-       <li>特典を有効化すると、複数のTwitchチャンネルを1つのBlueskyアカウントへ連携できます。</li>
-     </ul>
+     <div class="feature-grid">
+       <div class="feature-item"><strong>配信中ステータス</strong><span>Twitchの配信開始を検知し、Blueskyへ配信中バッジとリンクを表示します。</span></div>
+       <div class="feature-item"><strong>チャンネル別の自動ポスト</strong><span>投稿のON/OFF、本文、配信タイトル、カテゴリをチャンネルごとに設定できます。</span></div>
+       <div class="feature-item"><strong>マルチチャンネル</strong><span>特典を有効化すると、複数のTwitchチャンネルを1つのBlueskyへ連携できます。</span></div>
+     </div>
+     <p>配信終了を検知すると、配信中バッジは自動で解除されます。</p>
 
      <h2>使い方</h2>
-     <ol>
+     <ol class="step-list">
        <li>
-         <h3>1. Twitchでログイン</h3>
+         <h3>Twitchでログイン</h3>
          <p>Twitchアカウントでorbskyへログインします。自分のチャンネル以外を追加する場合も、最初に管理用のTwitchアカウントでログインしてください。</p>
        </li>
        <li>
-         <h3>2. Blueskyアカウントを連携</h3>
+         <h3>Blueskyアカウントを連携</h3>
          <p><a href="${SETTINGS_PATH}">設定</a>から「Blueskyと連携」を選び、配信中バッジと自動ポストを反映するBlueskyアカウントを選択します。</p>
        </li>
        <li>
-         <h3>3. Twitchチャンネルを連携</h3>
+         <h3>Twitchチャンネルを連携</h3>
          <p><a href="${CHANNELS_PATH}">チャンネル連携</a>で「自分のチャンネルを連携する」を選びます。連携後は、ページを開いたままにする必要はありません。</p>
        </li>
        <li>
-         <h3>4. 自動ポストを設定</h3>
+         <h3>自動ポストを設定</h3>
          <p>連携済みチャンネルごとに、自動ポストのON/OFF、本文フォーマット、配信タイトルとカテゴリを本文へ含めるかを設定して保存します。</p>
        </li>
        <li>
-         <h3>5. 配信する</h3>
+         <h3>配信する</h3>
          <p>通常どおりTwitchで配信を開始します。orbskyが開始・終了を検知してBlueskyへ反映します。</p>
        </li>
      </ol>
 
      <h2>自動ポスト本文のカスタマイズ</h2>
      <p>本文フォーマットでは、次の変数を好きな位置に配置できます。</p>
-     <table>
+     <div class="table-wrap"><table>
        <thead><tr><th>変数</th><th>投稿時に入る内容</th></tr></thead>
        <tbody>
          <tr><td><code>{title}</code></td><td>現在の配信タイトル</td></tr>
@@ -198,7 +237,7 @@ function renderGuide(
          <tr><td><code>{channel}</code></td><td>連携したチャンネル名</td></tr>
          <tr><td><code>{url}</code></td><td>連携したTwitchチャンネルのURL</td></tr>
        </tbody>
-     </table>
+     </table></div>
      <p>例:</p>
      <pre><code>🔴 {channel} が配信を始めました
 {title}
@@ -207,13 +246,13 @@ function renderGuide(
      <p>「配信タイトルをポスト本文に含める」「カテゴリをポスト本文に含める」のチェックを外すと、対応する変数は空になります。</p>
 
      <h2>無料利用と特典</h2>
-     <table>
+     <div class="table-wrap"><table>
        <thead><tr><th>利用状態</th><th>連携できるTwitchチャンネル</th><th>自動ポスト設定</th></tr></thead>
        <tbody>
          <tr><td>無料</td><td>1チャンネル</td><td>利用可能</td></tr>
          <tr><td>サポート特典</td><td>複数チャンネル</td><td>各チャンネルで利用可能</td></tr>
        </tbody>
-     </table>
+     </table></div>
      <p>複数チャンネル連携は、<a href="${SUPPORT_PATH}">特典ページ</a>でFANBOXサポートコードまたはTwitchサブスク特典を有効化すると利用できます。</p>
      <p>サポートコードは、別サービス <a href="${TWICA_URL}" target="_blank" rel="noopener noreferrer">twica</a> と同一のものをご利用いただけます。</p>
 
@@ -225,17 +264,20 @@ function renderGuide(
      </ul>
 
      <h2>orbskyを始める</h2>
-     ${startAction}`,
+     ${startAction}
+     </article>`,
+    { session },
   );
 }
 
 function renderPrivacy(): Response {
   return htmlPage(
     "orbsky - プライバシーポリシー",
-    `<h1>プライバシーポリシー</h1>
-     <p>最終更新日: 2026年8月9日</p>
-     <p>orbsky（以下「本サービス」）は、Twitchの配信状態をBlueskyへ反映するために必要な範囲で、利用者に関する情報を取り扱います。</p>
-     <p><a href="/">← トップへ戻る</a></p>
+    `<article class="content-page">
+     <a class="back-link" href="/">トップへ戻る</a>
+     <h1>プライバシーポリシー</h1>
+     <p class="help-text">最終更新日: 2026年8月9日</p>
+     <p class="lead">orbsky（以下「本サービス」）は、Twitchの配信状態をBlueskyへ反映するために必要な範囲で、利用者に関する情報を取り扱います。</p>
 
      <h2>1. 取得・保存する情報</h2>
      <h3>Twitchに関する情報</h3>
@@ -322,7 +364,8 @@ function renderPrivacy(): Response {
      <h2>11. お問い合わせ</h2>
      <p>運営者: azumag</p>
      <p><a href="${PRIVACY_CONTACT_URL}" target="_blank" rel="noopener noreferrer">GitHubの問い合わせ窓口</a></p>
-     <p>問い合わせページは公開されます。OAuthトークン、サポートコード、メールアドレスなどの秘密情報・個人情報は書き込まないでください。</p>`,
+     <p>問い合わせページは公開されます。OAuthトークン、サポートコード、メールアドレスなどの秘密情報・個人情報は書き込まないでください。</p>
+     </article>`,
   );
 }
 
@@ -402,66 +445,140 @@ async function handleChannels(
     env,
     session.twitchUserId,
   );
-  const rows = connections
+  const bskyDid = await getBskyDidForUser(env, session.twitchUserId);
+  const tabs = connections
+    .map(
+      (c, index) => `<button class="channel-tab${index === 0 ? " is-active" : ""}" id="channel-tab-${c.id}" type="button"
+        role="tab" aria-selected="${index === 0 ? "true" : "false"}" aria-controls="channel-${c.id}"
+        tabindex="${index === 0 ? "0" : "-1"}" data-channel-tab data-channel-target="channel-${c.id}">
+        <strong>${escapeHtml(c.twitchDisplayName)}</strong>
+        <small>@${escapeHtml(c.twitchLogin)} · 連携済み</small>
+      </button>`,
+    )
+    .join("");
+  const panels = connections
     .map((c) => {
       const suffix = String(c.id);
-      return `<li id="channel-${suffix}">
-         <h3>${escapeHtml(c.twitchDisplayName)} (@${escapeHtml(c.twitchLogin)})</h3>
-         <form method="post" action="${CHANNELS_POSTING_PATH}">
+      return `<section class="channel-panel" id="channel-${suffix}" role="tabpanel"
+         aria-labelledby="channel-tab-${suffix}" data-channel-panel
+         data-channel-login="${escapeHtml(c.twitchLogin)}" data-channel-display="${escapeHtml(c.twitchDisplayName)}">
+         <h2 class="panel-title">配信開始時の自動ポスト設定</h2>
+         <form method="post" action="${CHANNELS_POSTING_PATH}" data-posting-form>
            <input type="hidden" name="csrf" value="${session.csrf}">
            <input type="hidden" name="connection_id" value="${c.id}">
-           <p><label>
-             <input type="checkbox" name="post_on_start" value="1"${c.postOnStart ? " checked" : ""}>
-             配信開始時にBlueskyへポストする
-           </label></p>
-           <p><label for="post_template_${suffix}">ポスト本文のフォーマット</label><br>
-             <textarea id="post_template_${suffix}" name="post_template" rows="5" cols="60" maxlength="${MAX_POST_TEMPLATE_LENGTH}" required>${escapeHtml(c.postTemplate)}</textarea>
-           </p>
-           <p><label>
-             <input type="checkbox" name="include_title" value="1"${c.postIncludeTitle ? " checked" : ""}>
-             配信タイトルをポスト本文に含める
-           </label></p>
-           <p><label>
-             <input type="checkbox" name="include_category" value="1"${c.postIncludeCategory ? " checked" : ""}>
-             カテゴリをポスト本文に含める
-           </label></p>
-           <p><small>利用できる変数: {title} (配信タイトル)、{category} (カテゴリ)、{channel} (チャンネル名)、{url} (Twitch URL)。タイトルとカテゴリのチェックを外すと、対応する変数は空になります。</small></p>
-           <button type="submit">このチャンネルの投稿設定を保存</button>
+           <div class="setting-row">
+             <div class="setting-copy">
+               <label for="post_on_start_${suffix}">配信開始時にBlueskyへポストする</label>
+               <span>配信が開始されたときに、このチャンネル用の本文を自動で投稿します。</span>
+             </div>
+             <label class="switch-control" aria-label="自動ポストのON/OFF">
+               <input id="post_on_start_${suffix}" type="checkbox" role="switch" name="post_on_start" value="1"${c.postOnStart ? " checked" : ""}
+                 data-post-on-start>
+             </label>
+           </div>
+           <div class="field">
+             <label for="post_template_${suffix}">ポスト本文のフォーマット</label>
+             <span class="help-text">Blueskyへ投稿するメッセージを編集できます。</span>
+             <textarea id="post_template_${suffix}" name="post_template" rows="6" maxlength="${MAX_POST_TEMPLATE_LENGTH}"
+               data-post-template required>${escapeHtml(c.postTemplate)}</textarea>
+           </div>
+           <div class="variable-group">
+             <strong class="section-label">変数を挿入</strong>
+             <span class="help-text">ボタンを押すと、カーソル位置へ追加します。</span>
+             <div class="variable-buttons">
+               <button class="variable-chip" type="button" data-insert-token="{title}">{title} 配信タイトル</button>
+               <button class="variable-chip" type="button" data-insert-token="{category}">{category} カテゴリ</button>
+               <button class="variable-chip" type="button" data-insert-token="{channel}">{channel} チャンネル名</button>
+               <button class="variable-chip" type="button" data-insert-token="{url}">{url} 配信URL</button>
+             </div>
+           </div>
+           <div class="setting-check">
+             <input id="include_title_${suffix}" type="checkbox" name="include_title" value="1"
+               data-include-title${c.postIncludeTitle ? " checked" : ""}>
+             <label for="include_title_${suffix}">配信タイトルをポスト本文に含める
+               <small>{title} に現在の配信タイトルを入れます。</small>
+             </label>
+           </div>
+           <div class="setting-check">
+             <input id="include_category_${suffix}" type="checkbox" name="include_category" value="1"
+               data-include-category${c.postIncludeCategory ? " checked" : ""}>
+             <label for="include_category_${suffix}">カテゴリをポスト本文に含める
+               <small>{category} に現在のTwitchカテゴリを入れます。</small>
+             </label>
+           </div>
+           <div class="action-row">
+             <button type="submit">このチャンネルの投稿設定を保存</button>
+             <button class="text-button" type="submit" formaction="${CHANNELS_DISCONNECT_PATH}" formmethod="post" formnovalidate>このチャンネルを解除</button>
+           </div>
          </form>
-         <form method="post" action="${CHANNELS_DISCONNECT_PATH}">
-           <input type="hidden" name="csrf" value="${session.csrf}">
-           <input type="hidden" name="connection_id" value="${c.id}">
-           <button type="submit">解除</button>
-         </form>
-         </li>`;
+       </section>`;
     })
     .join("");
   const multiChannelSettings = canUseMultiChannel
     ? `<p>ご自身が管理している別のTwitchチャンネルのユーザー名を入力してください。</p>
-       <form method="post" action="${CHANNELS_ADD_PATH}">
+       <form class="inline-form" method="post" action="${CHANNELS_ADD_PATH}">
          <input type="hidden" name="csrf" value="${session.csrf}">
-         <label for="channel_login">Twitchユーザー名</label>
-         <input id="channel_login" type="text" name="channel_login" required placeholder="例: azumagsandbox">
+         <div class="field">
+           <label for="channel_login">Twitchユーザー名</label>
+           <input id="channel_login" type="text" name="channel_login" required placeholder="例: azumagsandbox">
+         </div>
          <button type="submit">チャンネルを追加</button>
        </form>`
     : `<p>サポートコードまたはTwitchサブスク特典を有効化すると、管理している複数のチャンネルを追加できます。</p>
-       <p><a href="${SUPPORT_PATH}">特典を有効化する</a></p>`;
+       <p><a class="button button-secondary" href="${SUPPORT_PATH}">特典を有効化する</a></p>`;
+  const editor = connections.length
+    ? `<span class="section-label">チャンネルを選択</span>
+       <div class="channel-tabs" role="tablist" aria-label="連携済みチャンネル">${tabs}</div>
+       <div class="channel-workspace">
+         <div>${panels}</div>
+         <aside class="post-preview" aria-live="polite">
+           <h2>投稿プレビュー</h2>
+           <p>配信開始時にBlueskyへ投稿される内容です。</p>
+           <div class="preview-card">
+             <div class="preview-author">
+               <strong>orbsky</strong>
+               <span data-preview-channel>@channel</span>
+             </div>
+             <div class="preview-text" data-preview-text>設定した投稿内容がここに表示されます。</div>
+             <div class="preview-meta">Blueskyへの公開ポスト</div>
+           </div>
+           <div class="preview-state" data-preview-state>配信開始時に投稿されます</div>
+         </aside>
+       </div>`
+    : `<div class="empty-state">連携済みチャンネルはありません。(なし)</div>`;
   return htmlPage(
-    "orbsky - チャンネル連携",
-    `<h1>チャンネル連携</h1>
-     <p>ログイン中: ${escapeHtml(session.twitchUserId)}</p>
-     <p><a href="/">← 戻る</a></p>
-     ${postingSaved ? "<p><strong>チャンネルの自動ポスト設定を保存しました。</strong></p>" : ""}
-     <h2>連携済みチャンネル</h2>
-     <p>自動ポストのON/OFF、本文、配信タイトル・カテゴリの使用をチャンネルごとに設定できます。この機能はすべてのプランで利用できます。</p>
-     <ul>${rows || "<li>(なし)</li>"}</ul>
-     <h2>チャンネルを連携</h2>
-     <form method="post" action="${CHANNELS_CONNECT_PATH}">
-       <input type="hidden" name="csrf" value="${session.csrf}">
-       <button type="submit">自分のチャンネルを連携する</button>
-     </form>
-     <h2>マルチチャンネル設定</h2>
-     ${multiChannelSettings}`,
+     "orbsky - チャンネル連携",
+    `<div class="page-heading">
+       <div>
+         <h1>配信のお知らせ設定</h1>
+         <p>チャンネル連携と、配信開始時にBlueskyへ投稿する内容を管理します。</p>
+       </div>
+       <div class="status-badges">
+         <span class="status-badge ${bskyDid ? "is-success" : ""}">Bluesky ${bskyDid ? "連携済み" : "未連携"}</span>
+         ${canUseMultiChannel ? '<span class="status-badge is-primary">マルチチャンネル利用中</span>' : ""}
+       </div>
+     </div>
+     <div class="progress-strip" aria-label="設定状況">
+       <div class="progress-step is-complete"><strong>Twitch連携</strong><span>${connections.length}チャンネル連携済み</span></div>
+       <div class="progress-step ${bskyDid ? "is-complete" : ""}"><strong>Bluesky連携</strong><span>${bskyDid ? "連携済み" : "設定が必要です"}</span></div>
+       <div class="progress-step is-current"><strong>投稿設定</strong><span>チャンネルごとに設定</span></div>
+     </div>
+     ${postingSaved ? '<div class="notice" role="status">チャンネルの自動ポスト設定を保存しました。</div>' : ""}
+     ${editor}
+     <section class="content-section">
+       <h2>チャンネルを連携</h2>
+       <p>ログイン中のTwitchアカウントが管理するチャンネルを連携します。</p>
+       <form method="post" action="${CHANNELS_CONNECT_PATH}">
+         <input type="hidden" name="csrf" value="${session.csrf}">
+         <button class="button-secondary" type="submit">自分のチャンネルを連携する</button>
+       </form>
+     </section>
+     <section class="content-section">
+       <h2>マルチチャンネル設定</h2>
+       ${multiChannelSettings}
+     </section>
+     <p class="help-text">自動ポストのON/OFF、本文、配信タイトル・カテゴリの使用は、すべてのプランで利用できます。</p>`,
+    { session, mainClass: "channels-page" },
   );
 }
 
@@ -682,7 +799,7 @@ async function handleSupport(
     subStatus = "無効中";
     subActions = `<form method="post" action="${SUB_ENABLE_PATH}">
        <input type="hidden" name="csrf" value="${session.csrf}">
-       <button type="submit">サブスク判定を再有効化</button>
+       <button class="button-secondary" type="submit">サブスク判定を再有効化</button>
      </form>`;
   } else {
     subStatus = await hasTwitchSub(env, session.twitchUserId)
@@ -690,45 +807,72 @@ async function handleSupport(
       .catch(() => "確認できません");
     subActions = `<form method="post" action="${SUB_CHECK_PATH}">
        <input type="hidden" name="csrf" value="${session.csrf}">
-       <button type="submit">サブスク状態を再確認</button>
+       <button class="button-secondary" type="submit">サブスク状態を再確認</button>
      </form>
      <form method="post" action="${SUB_DISABLE_PATH}">
        <input type="hidden" name="csrf" value="${session.csrf}">
-       <button type="submit">サブスク判定を無効にする</button>
+       <button class="text-button" type="submit">サブスク判定を無効にする</button>
      </form>`;
   }
+  const entitlementActive = Boolean(rows) || subStatus === "サブスク中 ✓";
 
   return htmlPage(
     "orbsky - 特典",
-    `<h1>特典(サポートコード / Twitchサブスク)</h1>
-     <p><a href="/">← 戻る</a></p>
-     <h2>サポートコードでできること</h2>
-     <p>無料利用では連携できるTwitchチャンネルは1つです。サポートコードを有効化すると、2つ目以降も追加して複数のTwitchチャンネルを連携できます。</p>
-     <p>連携した各チャンネルの配信開始・終了を検知し、同じBlueskyアカウントの配信ステータスと自動投稿へ反映できます。</p>
-     <ul>
-       <li><strong>サポーター:</strong> 複数チャンネル連携を利用できます。</li>
-       <li><strong>パトロン:</strong> 複数チャンネル連携を利用できます。orbskyでは現在、サポーターと同じ特典内容です。</li>
-     </ul>
-     <h2>FANBOXでサポートコードを受け取る</h2>
-     <p>azumagのFANBOXで支援してくださった方へ、サポートコードをお届けしています。</p>
-     <p>支援後、FANBOXのメッセージまたは支援者向け投稿でコードを確認し、下のフォームへ入力してください。</p>
-     <p><a href="${FANBOX_URL}" target="_blank" rel="noopener noreferrer">azumagのFANBOXを見る</a></p>
-     <p>サポートコードは、別サービス <a href="${TWICA_URL}" target="_blank" rel="noopener noreferrer">twica</a> と同一のものをご利用いただけます。</p>
-     <h2>現在の特典</h2>
-     <ul>${rows || "<li>(なし)</li>"}</ul>
-     <h2>Twitchサブスク(azumagbanjo)</h2>
-     <p>状態: ${escapeHtml(subStatus)}</p>
-     ${subActions}
-     <h2>サポートコードを入力</h2>
-     <form method="post" action="${SUPPORT_ACTIVATE_PATH}">
-       <input type="hidden" name="csrf" value="${session.csrf}">
-       <input type="text" name="code" required placeholder="コード">
-       <button type="submit">有効化</button>
-     </form>
-     <form method="post" action="${SUPPORT_DEACTIVATE_PATH}">
-       <input type="hidden" name="csrf" value="${session.csrf}">
-       <button type="submit">コード特典を解除</button>
-     </form>`,
+    `<div class="page-heading">
+       <div>
+         <a class="back-link" href="/">トップへ戻る</a>
+         <h1>特典とマルチチャンネル</h1>
+         <p>サポートコードまたはTwitchサブスクで、複数のTwitchチャンネル連携を有効化できます。</p>
+       </div>
+       <div class="status-badges"><span class="status-badge ${entitlementActive ? "is-primary" : ""}">${entitlementActive ? "マルチチャンネル利用中" : "無料利用"}</span></div>
+     </div>
+     <div class="support-layout">
+       <div class="stack">
+         <section class="content-card">
+           <h2>サポートコードでできること</h2>
+           <p>無料利用では連携できるTwitchチャンネルは1つです。サポートコードを有効化すると、2つ目以降も追加して複数のTwitchチャンネルを連携できます。</p>
+           <p>連携した各チャンネルの配信開始・終了を検知し、同じBlueskyアカウントの配信ステータスと自動投稿へ反映できます。</p>
+           <ul class="plan-list">
+             <li><strong>サポーター:</strong> 複数チャンネル連携を利用できます。</li>
+             <li><strong>パトロン:</strong> 複数チャンネル連携を利用できます。orbskyでは現在、サポーターと同じ特典内容です。</li>
+           </ul>
+         </section>
+         <section class="content-card">
+           <h2>FANBOXでサポートコードを受け取る</h2>
+           <p>azumagのFANBOXで支援してくださった方へ、サポートコードをお届けしています。</p>
+           <p>支援後、FANBOXのメッセージまたは支援者向け投稿でコードを確認し、右のフォームへ入力してください。</p>
+           <p><a class="button button-secondary" href="${FANBOX_URL}" target="_blank" rel="noopener noreferrer">azumagのFANBOXを見る</a></p>
+           <p>サポートコードは、別サービス <a href="${TWICA_URL}" target="_blank" rel="noopener noreferrer">twica</a> と同一のものをご利用いただけます。</p>
+         </section>
+       </div>
+       <div class="stack">
+         <section class="content-card">
+           <h2>現在の特典</h2>
+           <ul class="plan-list">${rows || "<li>(なし)</li>"}</ul>
+         </section>
+         <section class="content-card">
+           <h2>Twitchサブスク(azumagbanjo)</h2>
+           <div class="status-line"><strong>判定状態</strong><span class="status-badge">${escapeHtml(subStatus)}</span></div>
+           <div class="forms-stack">${subActions}</div>
+         </section>
+         <section class="content-card">
+           <h2>サポートコードを入力</h2>
+           <form method="post" action="${SUPPORT_ACTIVATE_PATH}">
+             <input type="hidden" name="csrf" value="${session.csrf}">
+             <div class="field">
+               <label for="support_code">サポートコード</label>
+               <input id="support_code" type="text" name="code" required placeholder="コードを入力">
+             </div>
+             <button type="submit">有効化</button>
+           </form>
+           <form class="logout-form" method="post" action="${SUPPORT_DEACTIVATE_PATH}">
+             <input type="hidden" name="csrf" value="${session.csrf}">
+             <button class="button-danger" type="submit">コード特典を解除</button>
+           </form>
+         </section>
+       </div>
+     </div>`,
+    { session },
   );
 }
 
@@ -986,25 +1130,41 @@ async function handleSettings(
   }
   const did = await getBskyDidForUser(env, session.twitchUserId);
   const body = did
-    ? `<h2>Bluesky連携</h2>
-       <p>連携中: ${escapeHtml(did)}</p>
+    ? `<section class="content-card">
+       <h2>Bluesky連携</h2>
+       <div class="status-line"><strong>接続状態</strong><span class="status-badge is-success">連携済み</span></div>
+       <p class="help-text">連携中: ${escapeHtml(did)}</p>
        <form method="post" action="${BSKY_DISCONNECT_PATH}">
          <input type="hidden" name="csrf" value="${session.csrf}">
-         <button type="submit">連携を解除</button>
-       </form>`
-    : `<h2>Bluesky連携</h2>
+         <button class="button-danger" type="submit">連携を解除</button>
+       </form>
+       </section>`
+    : `<section class="content-card">
+       <h2>Bluesky連携</h2>
        <p>未連携です。配信ステータスを反映するには Bluesky アカウントと連携してください。</p>
-       <p><a href="${BSKY_LOGIN_PATH}"><button type="button">Blueskyと連携</button></a></p>
-       <p><small>連携画面で Bluesky へのログインまたはアカウント選択ができます。</small></p>`;
+       <p><a class="button" href="${BSKY_LOGIN_PATH}">Blueskyと連携</a></p>
+       <p><small>連携画面で Bluesky へのログインまたはアカウント選択ができます。</small></p>
+       </section>`;
   return htmlPage(
     "orbsky - 設定",
-    `<h1>設定</h1>
-     <p><a href="/">← 戻る</a></p>
-     ${body}
-     <h2>配信開始時の自動ポスト</h2>
-     <p>自動ポストのON/OFFと本文は、連携しているTwitchチャンネルごとに設定できます。配信中バッジは自動ポスト設定に関係なく反映されます。</p>
-     <p><a href="${CHANNELS_PATH}">チャンネル別の自動ポスト設定を開く</a></p>
-     <p><small>この設定はすべてのプランで利用できます。</small></p>`,
+    `<div class="page-heading">
+       <div>
+         <a class="back-link" href="/">トップへ戻る</a>
+         <h1>Bluesky設定</h1>
+         <p>配信中ステータスと自動ポストを反映するBlueskyアカウントを管理します。</p>
+       </div>
+       <div class="status-badges"><span class="status-badge ${did ? "is-success" : ""}">Bluesky ${did ? "連携済み" : "未連携"}</span></div>
+     </div>
+     <div class="settings-layout">
+       ${body}
+       <section class="content-card">
+         <h2>配信開始時の自動ポスト</h2>
+         <p>自動ポストのON/OFFと本文は、連携しているTwitchチャンネルごとに設定できます。配信中バッジは自動ポスト設定に関係なく反映されます。</p>
+         <p><a class="button button-secondary" href="${CHANNELS_PATH}">チャンネル別の自動ポスト設定を開く</a></p>
+         <p><small>この設定はすべてのプランで利用できます。</small></p>
+       </section>
+     </div>`,
+    { session },
   );
 }
 
