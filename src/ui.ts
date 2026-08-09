@@ -90,7 +90,7 @@ const PAGE_SCRIPT = `(() => {
     let rendered = textarea.value;
     rendered = replaceAll(rendered, "{title}", "週末の雑談配信");
     rendered = replaceAll(rendered, "{category}", "Just Chatting");
-    rendered = replaceAll(rendered, "{channel}", panel.dataset.channelDisplay || panel.dataset.channelLogin || "Twitchチャンネル");
+    rendered = replaceAll(rendered, "{channel}", panel.dataset.channelDisplay || panel.dataset.channelLogin || "Twitchチャネル");
     rendered = replaceAll(rendered, "{url}", "https://twitch.tv/" + (panel.dataset.channelLogin || "channel"));
     rendered = rendered.replace(/\\n{3,}/g, "\\n\\n").trim();
 
@@ -832,16 +832,8 @@ pre code { padding: 0; background: transparent; }
 .management-disclosure > summary small,
 .support-subscription > summary small { color: var(--muted); font-weight: 450; }
 
-.management-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1.5rem;
-  padding: 1rem 0 0.25rem;
-}
-
-.management-grid section { border-left: 2px solid var(--border); padding-left: 1rem; }
-.management-grid h2 { margin: 0 0 0.35rem; color: var(--text-strong); font-size: 1rem; }
-.management-grid p { color: var(--muted-strong); font-size: 0.88rem; }
+.management-disclosure > p,
+.management-disclosure > .inline-form { margin-top: 0.5rem; }
 
 .inline-form { display: flex; max-width: 680px; align-items: end; gap: 0.75rem; }
 .inline-form .field { flex: 1; margin: 0; }
@@ -1103,7 +1095,6 @@ tr:last-child td { border-bottom: 0; }
   .switch-line { align-self: center; }
   .action-row { align-items: stretch; flex-direction: column; gap: 0.5rem; }
   .action-row > *, .action-row form, .action-row button { width: 100%; }
-  .management-grid { grid-template-columns: 1fr; }
   .next-action, .support-code-form { align-items: stretch; flex-direction: column; }
   .next-action .button, .support-code-form button { width: 100%; }
   .dashboard-footer { align-items: flex-start; flex-direction: column; }
@@ -1144,7 +1135,7 @@ export function renderHtmlPage(
   const authenticatedNav = session
     ? `${navLink("/channels", "投稿設定")}
        ${navLink("/settings", "Bluesky")}
-       ${navLink("/support", "特典")}`
+       ${navLink("/support", "マルチチャネル有効化")}`
     : "";
 
   return `<!DOCTYPE html>
@@ -1178,6 +1169,7 @@ export function renderHtmlPage(
       <nav class="footer-nav" aria-label="フッターナビゲーション">
         <a href="/">トップ</a>
         <a href="/guide">機能概要・使い方</a>
+        <a href="/about">運営者情報</a>
         <a href="/privacy">プライバシーポリシー</a>
       </nav>
     </div>

@@ -263,7 +263,7 @@ describe("サポートページ(HTTP)", () => {
     const body = await res.text();
     expect(body).toContain("サポートコードを入力");
     expect(body).toContain("サポートコードでできること");
-    expect(body).toContain("複数のTwitchチャンネル");
+    expect(body).toContain("複数のTwitchチャネル");
     expect(body).toContain("サポーター");
     expect(body).toContain("パトロン");
     expect(body).toContain("FANBOXのメッセージまたは支援者向け投稿");
@@ -292,7 +292,7 @@ describe("サポートページ(HTTP)", () => {
     expect(body).toContain("有効化しました");
     expect(body).toContain("プラン: サポーター");
     expect(body).toContain('href="/channels"');
-    expect(body).toContain("チャンネル設定を開く");
+    expect(body).toContain("チャネル設定を開く");
 
     const licenses = await listEntitlements(env0, "user-1");
     expect(licenses).toHaveLength(1);

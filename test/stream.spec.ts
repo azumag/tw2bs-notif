@@ -86,7 +86,7 @@ beforeEach(async () => {
     `INSERT INTO users (twitch_user_id, twitch_username, twitch_display_name)
      VALUES ('user-1', 'test_user', 'テストユーザー')`,
   ).run();
-  // チャンネル 12345 の連携を用意
+  // チャネル 12345 の連携を用意
   await env.DB.prepare(
     `INSERT INTO connections (user_id, twitch_channel_id, twitch_login, twitch_display_name)
      VALUES ('user-1', '12345', 'cool_user', 'あずまぐ')`,
@@ -184,7 +184,7 @@ describe("processStreamEvent", () => {
     );
   });
 
-  it("チャンネル設定がOFFならバッジだけ反映して通常ポストは作成しない", async () => {
+  it("チャネル設定がOFFならバッジだけ反映して通常ポストは作成しない", async () => {
     mockStreamStates(new Map([["12345", streamState]]));
     await env.DB.prepare(
       `UPDATE connections SET post_on_start = 0
@@ -199,7 +199,7 @@ describe("processStreamEvent", () => {
     expect(blueskyModule.createStreamPost).not.toHaveBeenCalled();
   });
 
-  it("チャンネル固有テンプレートへタイトル・カテゴリ・URLを展開する", async () => {
+  it("チャネル固有テンプレートへタイトル・カテゴリ・URLを展開する", async () => {
     mockStreamStates(new Map([["12345", streamState]]));
     await env.DB.prepare(
       `UPDATE connections

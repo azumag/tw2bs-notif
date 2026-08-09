@@ -17,7 +17,7 @@ export interface SubCheckResult {
 }
 
 /**
- * ユーザーが対象チャンネル(broadcaster)をサブスクしているか判定する。
+ * ユーザーが対象チャネル(broadcaster)をサブスクしているか判定する。
  * キャッシュ期限内は DB の結果を返す。期限切れは API で確認して保存する。
  */
 export async function hasTwitchSub(

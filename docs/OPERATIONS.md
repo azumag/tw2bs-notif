@@ -10,7 +10,7 @@ Twitch EventSub (stream.online/offline)
   → Workers Queue (eventsub-events)
   → Queue consumer → processStreamEvent(connections ベース)
   → Bluesky (status record / 投稿)
-cron (30分毎) → refreshStreamStatus(全連携チャンネルをバッチポーリング、自己修復)
+cron (30分毎) → refreshStreamStatus(全連携チャネルをバッチポーリング、自己修復)
 ```
 
 - ストレージ: KV(STATE: セッション/状態/webhook secret)、D1(tw2bs-notif-db: users/connections/support_codes/user_licenses)
@@ -19,16 +19,16 @@ cron (30分毎) → refreshStreamStatus(全連携チャンネルをバッチポ�
 
 ## 特典システム
 
-| プラン | 連携チャンネル数 |
+| プラン | 連携チャネル数 |
 |---|---|
-| 無料 | 1チャンネル |
+| 無料 | 1チャネル |
 | 特典(Fanbox サポートコード OR azumagbanjo への Twitch サブスク) | 複数 |
 
 - 特典失効後も既存連携は動作継続(新規追加のみ制限)
 - サブスク判定は 1時間キャッシュ(手動「再確認」で更新可)
-- 配信開始時の通常ポストは全プランでチャンネルごとに設定可能(`/channels`、連携直後はデフォルトOFF)
+- 配信開始時の通常ポストは全プランでチャネルごとに設定可能(`/channels`、連携直後はデフォルトOFF)
 - 本文は `{title}` / `{category}` / `{channel}` / `{url}` を使って自由に構成できる。テンプレートに書いた変数だけが展開される(個別のON/OFFスイッチは無い)
-- `BSKY_POST_ON_START` は自動ポスト全体の運用スイッチ。チャンネル設定がONでも、この値が `true` でない場合は投稿しない
+- `BSKY_POST_ON_START` は自動ポスト全体の運用スイッチ。チャネル設定がONでも、この値が `true` でない場合は投稿しない
 
 ### サポートコードの発行手順
 
@@ -69,7 +69,7 @@ GitHub の `main` ブランチへの push で自動デプロイされる(Workers
 |---|---|
 | TWITCH_CLIENT_ID | Twitch アプリ tw2bsky の Client ID |
 | TWITCH_CLIENT_SECRET | 同上 Secret |
-| TWITCH_BROADCASTER_ID | サブスク判定対象チャンネル(azumagbanjo = 130871908) |
+| TWITCH_BROADCASTER_ID | サブスク判定対象チャネル(azumagbanjo = 130871908) |
 | BSKY_HANDLE / BSKY_APP_PASSWORD | Bluesky 資格情報(サービス共通) |
 | ENCRYPTION_KEY | トークン暗号化キー(32バイト hex) |
 
@@ -84,7 +84,7 @@ npx wrangler d1 migrations apply tw2bs-notif-db --remote
 - `npx wrangler tail orbsky` — リアルタイムログ(`[info]` / `[error]` プレフィックス)
 - 配信開始が反映されない場合:
   1. `npm run setup -- list`(または Twitch コンソール)で購読が enabled か確認
-  2. チャンネルが connections に登録されているか(DB: `SELECT * FROM connections`)
+  2. チャネルが connections に登録されているか(DB: `SELECT * FROM connections`)
   3. `wrangler tail` で `ignored unknown channel` が出ていないか
 - EventSub 購読は連携フロー(/channels)で自動作成・削除される。手動購読は不要
 - 4時間超の配信: cron(30分毎)が record を再書き込みしてバッジを維持

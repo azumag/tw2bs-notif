@@ -67,7 +67,7 @@ export async function findConnectionByChannel(
   return row ? toConnection(row) : null;
 }
 
-/** チャンネルに紐づく全 connections を返す(マルチユーザー対応) */
+/** チャネルに紐づく全 connections を返す(マルチユーザー対応) */
 export async function findConnectionsByChannel(
   env: AppEnv,
   channelId: string,
@@ -120,7 +120,7 @@ export async function deleteConnection(
   return result.meta.changes > 0;
 }
 
-/** 所有者を確認しながらチャンネル別の自動ポスト設定を保存する。 */
+/** 所有者を確認しながらチャネル別の自動ポスト設定を保存する。 */
 export async function updateConnectionPostingSettings(
   env: AppEnv,
   userId: string,
