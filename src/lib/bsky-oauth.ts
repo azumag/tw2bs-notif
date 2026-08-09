@@ -68,6 +68,19 @@ function createHandleResolver(): HandleResolver {
 
 type RetryWait = (ms: number, signal: AbortSignal) => Promise<void>;
 
+function normalizeRedirectModeForWorkers(
+  input: string | URL | Request,
+  init?: RequestInit,
+): RequestInit | undefined {
+  const redirect =
+    init?.redirect ?? (input instanceof Request ? input.redirect : undefined);
+  if (redirect !== "error") return init;
+
+  // Workers は redirect="error" を受け付けない。manual もリダイレクトを
+  // 追従せず、SDK 側が非 2xx を拒否するため安全性と結果は維持される。
+  return { ...(init ?? {}), redirect: "manual" };
+}
+
 function isPlcDidRequest(
   input: string | URL | Request,
   init?: RequestInit,
@@ -121,14 +134,16 @@ export function createOAuthFetch(
   wait: RetryWait = waitForRetry,
 ): Fetch {
   return async (input, init) => {
+    const workersInit = normalizeRedirectModeForWorkers(input, init);
+
     // 判定時は body に触れない。Request を再構築すると元の body が使用済みになり、
     // clone でも init.body による正規の上書きを妨げるため。
-    if (!isPlcDidRequest(input, init)) {
-      return baseFetch.call(globalThis, input, init);
+    if (!isPlcDidRequest(input, workersInit)) {
+      return baseFetch.call(globalThis, input, workersInit);
     }
 
     // 再試行対象は body を持たない PLC GET に限定されている。
-    const request = new Request(input, init);
+    const request = new Request(input, workersInit);
     for (let attempt = 0; ; attempt += 1) {
       request.signal.throwIfAborted();
       try {
