@@ -184,6 +184,43 @@ describe("PLC DID 解決 fetch", () => {
     expect(waits).toEqual([100, 250]);
   });
 
+  it("Workers 非対応の redirect=error を PLC GET で manual に変換する", async () => {
+    const redirects: string[] = [];
+    const baseFetch = vi.fn<typeof fetch>(async (input, init) => {
+      redirects.push(new Request(input, init).redirect);
+      return Response.json({ id: "did:plc:test" }, { status: 200 });
+    });
+    const oauthFetch = createOAuthFetch(baseFetch);
+    const init = { redirect: "error" as const };
+
+    const response = await oauthFetch(
+      "https://plc.directory/did:plc:test",
+      init,
+    );
+
+    expect(response.status).toBe(200);
+    expect(redirects).toEqual(["manual"]);
+    expect(init.redirect).toBe("error");
+  });
+
+  it("PLC 以外の resolver GET でも redirect=error を manual に変換する", async () => {
+    const baseFetch = vi.fn<typeof fetch>(async (_input, init) => {
+      expect(init?.redirect).toBe("manual");
+      return Response.json({ id: "did:web:example.com" }, { status: 200 });
+    });
+    const wait = vi.fn(async () => undefined);
+    const oauthFetch = createOAuthFetch(baseFetch, wait);
+
+    const response = await oauthFetch(
+      "https://example.com/.well-known/did.json",
+      { redirect: "error" },
+    );
+
+    expect(response.status).toBe(200);
+    expect(baseFetch).toHaveBeenCalledTimes(1);
+    expect(wait).not.toHaveBeenCalled();
+  });
+
   it.each([
     {
       label: "PLC DID への POST",
