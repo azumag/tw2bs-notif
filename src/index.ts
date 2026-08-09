@@ -7,6 +7,7 @@ import {
   exchangeCode,
   fetchOwnTwitchUser,
   fetchTwitchUser,
+  TwitchOAuthError,
   upsertUserWithTokens,
 } from "./lib/twitch-oauth";
 import {
@@ -120,6 +121,81 @@ function normalizeTwitchLogin(input: string): string | null {
   return login;
 }
 
+type SessionLike = { twitchUserId: string; csrf: string } | null;
+
+/**
+ * Renders a one-off notice/error page (CSRF failures, gating messages,
+ * confirmations) with the same header, footer, and card styling as the
+ * rest of the app, instead of a bare unstyled paragraph. Always forwards
+ * the caller's session so a signed-in user keeps their navigation even
+ * when a single form submission failed.
+ */
+function renderMessage(params: {
+  title: string;
+  heading: string;
+  tone?: "info" | "success" | "error";
+  body: string;
+  primary?: { href: string; label: string };
+  secondary?: { href: string; label: string };
+  session?: SessionLike;
+}): Response {
+  const tone = params.tone ?? "info";
+  const actions = [
+    params.primary
+      ? `<a class="button" href="${params.primary.href}">${escapeHtml(params.primary.label)}</a>`
+      : "",
+    params.secondary
+      ? `<a class="button button-secondary" href="${params.secondary.href}">${escapeHtml(params.secondary.label)}</a>`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+  return htmlPage(
+    params.title,
+    `<article class="focused-page message-page">
+       <a class="back-link" href="/">トップへ戻る</a>
+       <h1>${escapeHtml(params.heading)}</h1>
+       <section class="focus-card message-card is-${tone}">
+         ${params.body}
+         ${actions ? `<div class="action-row">${actions}</div>` : ""}
+       </section>
+     </article>`,
+    { session: params.session ?? null },
+  );
+}
+
+function renderInvalidRequest(session: SessionLike): Response {
+  return renderMessage({
+    title: "エラー",
+    heading: "無効なリクエストです",
+    tone: "error",
+    body: "<p>ページを再読み込みしてから、もう一度お試しください。</p>",
+    session,
+  });
+}
+
+function renderReauthRequired(session: SessionLike): Response {
+  return renderMessage({
+    title: "エラー",
+    heading: "再ログインが必要です",
+    tone: "error",
+    body: "<p>Twitchのトークンが失効しています。再ログインしてください。</p>",
+    primary: { href: LOGIN_PATH, label: "もう一度ログインする" },
+    session,
+  });
+}
+
+function renderOperationUnavailable(session: SessionLike): Response {
+  return renderMessage({
+    title: "エラー",
+    heading: "現在この操作を行えません",
+    tone: "error",
+    body: "<p>しばらくしてからもう一度お試しください。改善しない場合はお問い合わせください。</p>",
+    secondary: { href: CHANNELS_PATH, label: "チャンネル連携に戻る" },
+    session,
+  });
+}
+
 function renderIndex(
   session: { twitchUserId: string; csrf: string } | null,
 ): Response {
@@ -145,6 +221,7 @@ function renderIndex(
            </ol>
          </aside>
        </section>`,
+      { currentPath: "/" },
     );
   }
   return htmlPage(
@@ -152,7 +229,7 @@ function renderIndex(
     `<section class="dashboard">
        <span class="eyebrow">ホーム</span>
        <h1>配信のお知らせ</h1>
-       <p>いつもの設定と連携状態を、必要な順に確認できます。</p>
+       <p>投稿設定やBluesky・特典の連携状態を、ここからまとめて確認できます。</p>
        <div class="dashboard-focus">
          <a class="dashboard-primary" href="${CHANNELS_PATH}">
            <span class="eyebrow">メイン</span>
@@ -173,7 +250,7 @@ function renderIndex(
          </form>
        </div>
      </section>`,
-    { session },
+    { session, currentPath: "/" },
   );
 }
 
@@ -263,7 +340,7 @@ function renderGuide(
      <h2>orbskyを始める</h2>
      ${startAction}
      </article>`,
-    { session },
+    { session, currentPath: GUIDE_PATH },
   );
 }
 
@@ -381,11 +458,23 @@ async function handleCallback(
   const code = url.searchParams.get("code") ?? "";
   if (!code) {
     logError("auth", "callback without code");
-    return htmlPage("エラー", "<p>認可が無効です。もう一度ログインしてください。</p>");
+    return renderMessage({
+      title: "エラー",
+      heading: "ログインを確認できませんでした",
+      tone: "error",
+      body: "<p>認可が無効です。もう一度ログインしてください。</p>",
+      primary: { href: LOGIN_PATH, label: "もう一度ログインする" },
+    });
   }
   if (!(await consumeOAuthState(env, state))) {
     logError("auth", "callback with invalid state", undefined, { state });
-    return htmlPage("エラー", "<p>認可が無効です。もう一度ログインしてください。</p>");
+    return renderMessage({
+      title: "エラー",
+      heading: "ログインを確認できませんでした",
+      tone: "error",
+      body: "<p>認可が無効です。もう一度ログインしてください。</p>",
+      primary: { href: LOGIN_PATH, label: "もう一度ログインする" },
+    });
   }
   try {
     const tokens = await exchangeCode(env, code);
@@ -403,10 +492,13 @@ async function handleCallback(
     });
   } catch (err) {
     logError("auth", "login failed", err);
-    return htmlPage(
-      "エラー",
-      "<p>ログインに失敗しました。時間をおいてもう一度お試しください。</p>",
-    );
+    return renderMessage({
+      title: "エラー",
+      heading: "ログインに失敗しました",
+      tone: "error",
+      body: "<p>時間をおいてもう一度お試しください。</p>",
+      primary: { href: LOGIN_PATH, label: "もう一度ログインする" },
+    });
   }
 }
 
@@ -418,7 +510,7 @@ async function handleLogout(
   const form = await request.formData().catch(() => null);
   const csrf = typeof form?.get("csrf") === "string" ? form.get("csrf") : null;
   if (!session || csrf !== session.csrf) {
-    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+    return renderInvalidRequest(session);
   }
   await deleteSession(env, request);
   return new Response(null, {
@@ -543,19 +635,22 @@ async function handleChannels(
            <div class="preview-state" data-preview-state>配信開始時に投稿されます</div>
          </aside>
        </div>`
-    : `<div class="empty-state">連携済みチャンネルはありません。(なし)</div>`;
+    : `<div class="empty-state">
+         <p>連携しているチャンネルはまだありません。</p>
+         <p class="help-text">下の「チャンネル連携」から、自分のチャンネルを連携してください。</p>
+       </div>`;
   return htmlPage(
-     "orbsky - チャンネル連携",
+    "orbsky - 投稿設定",
     `<div class="channel-page-header">
        <div>
-         <span class="eyebrow">投稿設定</span>
-         <h1>配信のお知らせ</h1>
+         <span class="eyebrow">チャンネル連携</span>
+         <h1>投稿設定</h1>
          <p>配信開始時にBlueskyへ投稿する内容を設定します。</p>
        </div>
        <div class="connection-summary" aria-label="連携状態">
          <span class="compact-status ${bskyDid ? "is-success" : ""}">Bluesky ${bskyDid ? "連携済み" : "未連携"}</span>
          <span>${connections.length}チャンネル</span>
-         ${canUseMultiChannel ? "<span>複数利用可</span>" : ""}
+         ${canUseMultiChannel ? "<span>マルチチャンネル利用可</span>" : ""}
        </div>
      </div>
      ${postingSaved ? '<div class="notice" role="status">チャンネルの自動ポスト設定を保存しました。</div>' : ""}
@@ -580,7 +675,7 @@ async function handleChannels(
        </div>
        <p class="help-text">自動ポストのON/OFF、本文、配信タイトル・カテゴリの使用は、すべてのプランで利用できます。</p>
      </details>`,
-    { session, mainClass: "channels-page" },
+    { session, mainClass: "channels-page", currentPath: CHANNELS_PATH },
   );
 }
 
@@ -592,17 +687,14 @@ async function handleConnectChannel(
   const form = await request.formData().catch(() => null);
   const csrf = typeof form?.get("csrf") === "string" ? form.get("csrf") : null;
   if (!session || csrf !== session.csrf) {
-    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+    return renderInvalidRequest(session);
   }
 
   try {
     const secret = await env.STATE.get(WEBHOOK_SECRET_KEY);
     if (!secret) {
-      return htmlPage(
-        "エラー",
-        `<p>webhook secret が設定されていません。管理者に連絡してください。</p>
-         <p><a href="${CHANNELS_PATH}">戻る</a></p>`,
-      );
+      logError("channels", "webhook secret not configured");
+      return renderOperationUnavailable(session);
     }
     const user = await fetchOwnTwitchUser(env, session.twitchUserId);
     const existing = await findConnectionByChannel(env, user.id, user.id);
@@ -610,11 +702,13 @@ async function handleConnectChannel(
       // 特典ゲート: 無料は1チャンネルまで、特典(Fanboxコード or Twitchサブスク)で複数可
       const count = await listConnections(env, session.twitchUserId);
       if (count.length >= 1 && !(await hasActiveEntitlement(env, session.twitchUserId))) {
-        return htmlPage(
-          "特典",
-          `<p>連携できるチャンネルは無料プランでは1つまでです。サポートコードまたはTwitchサブスクで複数連携が解放されます。</p>
-           <p><a href="${SUPPORT_PATH}">特典ページへ</a></p>`,
-        );
+        return renderMessage({
+          title: "特典",
+          heading: "複数チャンネルには特典が必要です",
+          body: "<p>連携できるチャンネルは無料利用では1つまでです。サポートコードまたはTwitchサブスクで複数連携が解放されます。</p>",
+          primary: { href: SUPPORT_PATH, label: "特典ページへ" },
+          session,
+        });
       }
       await insertConnection(env, session.twitchUserId, {
         id: user.id,
@@ -632,11 +726,17 @@ async function handleConnectChannel(
     return new Response(null, { status: 302, headers: { Location: CHANNELS_PATH } });
   } catch (err) {
     logError("channels", "connect failed", err);
-    return htmlPage(
-      "エラー",
-      `<p>連携に失敗しました: ${escapeHtml(err instanceof Error ? err.message : String(err))}</p>
-       <p><a href="${CHANNELS_PATH}">戻る</a></p>`,
-    );
+    if (err instanceof TwitchOAuthError) {
+      return renderReauthRequired(session);
+    }
+    return renderMessage({
+      title: "エラー",
+      heading: "連携に失敗しました",
+      tone: "error",
+      body: "<p>時間をおいてもう一度お試しください。改善しない場合はお問い合わせください。</p>",
+      secondary: { href: CHANNELS_PATH, label: "チャンネル連携に戻る" },
+      session,
+    });
   }
 }
 
@@ -651,39 +751,44 @@ async function handleAddChannel(
   const login =
     typeof loginRaw === "string" ? normalizeTwitchLogin(loginRaw) : null;
   if (!session || csrf !== session.csrf) {
-    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+    return renderInvalidRequest(session);
   }
   if (!login) {
-    return htmlPage(
-      "エラー",
-      `<p>Twitchユーザー名を正しく入力してください。</p>
-       <p><a href="${CHANNELS_PATH}">戻る</a></p>`,
-    );
+    return renderMessage({
+      title: "エラー",
+      heading: "Twitchユーザー名を確認してください",
+      tone: "error",
+      body: "<p>Twitchユーザー名を正しく入力してください。</p>",
+      secondary: { href: CHANNELS_PATH, label: "チャンネル連携に戻る" },
+      session,
+    });
   }
   if (!(await hasActiveEntitlement(env, session.twitchUserId))) {
-    return htmlPage(
-      "特典",
-      `<p>マルチチャンネル設定には、サポートコードまたはTwitchサブスク特典の有効化が必要です。</p>
-       <p><a href="${SUPPORT_PATH}">特典ページへ</a></p>`,
-    );
+    return renderMessage({
+      title: "特典",
+      heading: "マルチチャンネルには特典が必要です",
+      body: "<p>複数のTwitchチャンネルを追加するには、サポートコードまたはTwitchサブスク特典の有効化が必要です。</p>",
+      primary: { href: SUPPORT_PATH, label: "特典ページへ" },
+      session,
+    });
   }
 
   try {
     const secret = await env.STATE.get(WEBHOOK_SECRET_KEY);
     if (!secret) {
-      return htmlPage(
-        "エラー",
-        `<p>webhook secret が設定されていません。管理者に連絡してください。</p>
-         <p><a href="${CHANNELS_PATH}">戻る</a></p>`,
-      );
+      logError("channels", "webhook secret not configured");
+      return renderOperationUnavailable(session);
     }
     const channel = await fetchTwitchUserByLogin(env, login);
     if (!channel) {
-      return htmlPage(
-        "エラー",
-        `<p>Twitchチャンネルが見つかりません。ユーザー名を確認してください。</p>
-         <p><a href="${CHANNELS_PATH}">戻る</a></p>`,
-      );
+      return renderMessage({
+        title: "エラー",
+        heading: "チャンネルが見つかりません",
+        tone: "error",
+        body: "<p>Twitchチャンネルが見つかりません。ユーザー名を確認してください。</p>",
+        secondary: { href: CHANNELS_PATH, label: "チャンネル連携に戻る" },
+        session,
+      });
     }
     const existing = await findConnectionByChannel(
       env,
@@ -711,11 +816,14 @@ async function handleAddChannel(
     logError("channels", "add multi-channel connection failed", err, {
       userId: session.twitchUserId,
     });
-    return htmlPage(
-      "エラー",
-      `<p>連携に失敗しました: ${escapeHtml(err instanceof Error ? err.message : String(err))}</p>
-       <p><a href="${CHANNELS_PATH}">戻る</a></p>`,
-    );
+    return renderMessage({
+      title: "エラー",
+      heading: "連携に失敗しました",
+      tone: "error",
+      body: "<p>時間をおいてもう一度お試しください。改善しない場合はお問い合わせください。</p>",
+      secondary: { href: CHANNELS_PATH, label: "チャンネル連携に戻る" },
+      session,
+    });
   }
 }
 
@@ -730,7 +838,7 @@ async function handleDisconnectChannel(
   const connectionId =
     typeof connectionIdRaw === "string" ? Number(connectionIdRaw) : NaN;
   if (!session || csrf !== session.csrf || Number.isNaN(connectionId)) {
-    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+    return renderInvalidRequest(session);
   }
 
   try {
@@ -761,11 +869,14 @@ async function handleDisconnectChannel(
     return new Response(null, { status: 302, headers: { Location: CHANNELS_PATH } });
   } catch (err) {
     logError("channels", "disconnect failed", err);
-    return htmlPage(
-      "エラー",
-      `<p>解除に失敗しました: ${escapeHtml(err instanceof Error ? err.message : String(err))}</p>
-       <p><a href="${CHANNELS_PATH}">戻る</a></p>`,
-    );
+    return renderMessage({
+      title: "エラー",
+      heading: "連携解除に失敗しました",
+      tone: "error",
+      body: "<p>時間をおいてもう一度お試しください。改善しない場合はお問い合わせください。</p>",
+      secondary: { href: CHANNELS_PATH, label: "チャンネル連携に戻る" },
+      session,
+    });
   }
 }
 
@@ -797,6 +908,9 @@ async function handleSupport(
 
   let subStatus: string;
   let subActions: string;
+  // hasSubResult は null = 未確認/確認失敗、true/false = 確認できたサブスク有無。
+  // 表示文言ではなくこの真偽値を判定に使う(文言変更が特典判定に影響しないようにする)。
+  let hasSubResult: boolean | null = null;
   if (subDisabled) {
     subStatus = "無効中";
     subActions = `<form method="post" action="${SUB_ENABLE_PATH}">
@@ -804,9 +918,13 @@ async function handleSupport(
        <button class="button-secondary" type="submit">サブスク判定を再有効化</button>
      </form>`;
   } else {
-    subStatus = await hasTwitchSub(env, session.twitchUserId)
-      .then((hasSub) => (hasSub ? "サブスク中 ✓" : "サブスクなし"))
-      .catch(() => "確認できません");
+    hasSubResult = await hasTwitchSub(env, session.twitchUserId).catch(() => null);
+    subStatus =
+      hasSubResult === null
+        ? "確認できません"
+        : hasSubResult
+          ? "サブスク中"
+          : "サブスクなし";
     subActions = `<form method="post" action="${SUB_CHECK_PATH}">
        <input type="hidden" name="csrf" value="${session.csrf}">
        <button class="button-secondary" type="submit">サブスク状態を再確認</button>
@@ -816,8 +934,8 @@ async function handleSupport(
        <button class="text-button" type="submit">サブスク判定を無効にする</button>
      </form>`;
   }
-  const entitlementActive = Boolean(rows) || subStatus === "サブスク中 ✓";
-  const entitlementSource = subStatus === "サブスク中 ✓"
+  const entitlementActive = Boolean(rows) || hasSubResult === true;
+  const entitlementSource = hasSubResult === true
     ? "Twitchサブスクで利用中"
     : rows
       ? "サポートコードで利用中"
@@ -882,12 +1000,12 @@ async function handleSupport(
        <details class="focus-card support-subscription">
          <summary>
            <span><strong>Twitchサブスク(azumagbanjo)</strong><small>判定状態と設定</small></span>
-           <span class="compact-status">${escapeHtml(subStatus)}</span>
+           <span class="compact-status ${hasSubResult === true ? "is-success" : ""}">${escapeHtml(subStatus)}</span>
          </summary>
          <div class="disclosure-content forms-stack">${subActions}</div>
        </details>
      </article>`,
-    { session },
+    { session, currentPath: SUPPORT_PATH },
   );
 }
 
@@ -901,7 +1019,7 @@ async function handleSupportActivate(
   const codeRaw = form?.get("code");
   const code = typeof codeRaw === "string" ? codeRaw.trim() : "";
   if (!session || csrf !== session.csrf || !code) {
-    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+    return renderInvalidRequest(session);
   }
 
   try {
@@ -910,12 +1028,16 @@ async function handleSupportActivate(
       userId: session.twitchUserId,
       planType: license.planType,
     });
-    return htmlPage(
-      "特典",
-      `<p>有効化しました(プラン: ${escapeHtml(supportPlanLabel(license.planType))})</p>
-       <p><a href="${CHANNELS_PATH}">マルチチャンネル設定へ進む</a></p>
-       <p><a href="${SUPPORT_PATH}">戻る</a></p>`,
-    );
+    return renderMessage({
+      title: "特典",
+      heading: "サポートコードを有効化しました",
+      tone: "success",
+      body: `<p>プラン: ${escapeHtml(supportPlanLabel(license.planType))}</p>
+             <p>複数のTwitchチャンネルを連携できるようになりました。</p>`,
+      primary: { href: CHANNELS_PATH, label: "チャンネル設定を開く" },
+      secondary: { href: SUPPORT_PATH, label: "特典ページに戻る" },
+      session,
+    });
   } catch (err) {
     const message =
       err instanceof SupportCodeError ? err.message : "有効化に失敗しました";
@@ -929,10 +1051,14 @@ async function handleSupportActivate(
         userId: session.twitchUserId,
       });
     }
-    return htmlPage(
-      "特典",
-      `<p>${escapeHtml(message)}</p><p><a href="${SUPPORT_PATH}">戻る</a></p>`,
-    );
+    return renderMessage({
+      title: "特典",
+      heading: "有効化できませんでした",
+      tone: "error",
+      body: `<p>${escapeHtml(message)}</p>`,
+      secondary: { href: SUPPORT_PATH, label: "特典ページに戻る" },
+      session,
+    });
   }
 }
 
@@ -944,7 +1070,7 @@ async function handleSupportDeactivate(
   const form = await request.formData().catch(() => null);
   const csrf = typeof form?.get("csrf") === "string" ? form.get("csrf") : null;
   if (!session || csrf !== session.csrf) {
-    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+    return renderInvalidRequest(session);
   }
   await deactivateEntitlements(env, session.twitchUserId);
   logInfo("support", "entitlements deactivated", {
@@ -961,22 +1087,30 @@ async function handleSubCheck(
   const form = await request.formData().catch(() => null);
   const csrf = typeof form?.get("csrf") === "string" ? form.get("csrf") : null;
   if (!session || csrf !== session.csrf) {
-    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+    return renderInvalidRequest(session);
   }
 
   const result = await refreshTwitchSubCheck(env, session.twitchUserId);
   if (result === null) {
-    return htmlPage(
-      "特典",
-      `<p>確認に失敗しました。再ログインが必要な場合があります。</p>
-       <p><a href="${SUPPORT_PATH}">戻る</a></p>`,
-    );
+    return renderMessage({
+      title: "特典",
+      heading: "確認に失敗しました",
+      tone: "error",
+      body: "<p>再ログインが必要な場合があります。</p>",
+      secondary: { href: SUPPORT_PATH, label: "特典ページに戻る" },
+      session,
+    });
   }
-  return htmlPage(
-    "特典",
-    `<p>${result ? "サブスク中です ✓" : "サブスクは見つかりませんでした"}</p>
-     <p><a href="${SUPPORT_PATH}">戻る</a></p>`,
-  );
+  return renderMessage({
+    title: "特典",
+    heading: result ? "サブスク中です" : "サブスクは見つかりませんでした",
+    tone: result ? "success" : "info",
+    body: result
+      ? "<p>Twitchサブスクによる特典が利用できます。</p>"
+      : "<p>Twitchで azumagbanjo のサブスクリプションが確認できませんでした。</p>",
+    secondary: { href: SUPPORT_PATH, label: "特典ページに戻る" },
+    session,
+  });
 }
 
 async function handleSubDisable(
@@ -987,7 +1121,7 @@ async function handleSubDisable(
   const form = await request.formData().catch(() => null);
   const csrf = typeof form?.get("csrf") === "string" ? form.get("csrf") : null;
   if (!session || csrf !== session.csrf) {
-    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+    return renderInvalidRequest(session);
   }
   await setTwitchSubCheckDisabled(env, session.twitchUserId, true);
   logInfo("support", "sub check disabled", { userId: session.twitchUserId });
@@ -1002,7 +1136,7 @@ async function handleSubEnable(
   const form = await request.formData().catch(() => null);
   const csrf = typeof form?.get("csrf") === "string" ? form.get("csrf") : null;
   if (!session || csrf !== session.csrf) {
-    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+    return renderInvalidRequest(session);
   }
   await setTwitchSubCheckDisabled(env, session.twitchUserId, false);
   logInfo("support", "sub check enabled", { userId: session.twitchUserId });
@@ -1024,10 +1158,14 @@ async function handleBskyLogin(
     return new Response(null, { status: 302, headers: { Location: authUrl.toString() } });
   } catch (err) {
     logError("bsky", "authorize failed", err, { userId: session.twitchUserId });
-    return htmlPage(
-      "エラー",
-      "<p>認可の開始に失敗しました。時間をおいてもう一度お試しください。</p>",
-    );
+    return renderMessage({
+      title: "エラー",
+      heading: "Bluesky連携を開始できませんでした",
+      tone: "error",
+      body: "<p>時間をおいてもう一度お試しください。</p>",
+      secondary: { href: SETTINGS_PATH, label: "Bluesky設定に戻る" },
+      session,
+    });
   }
 }
 
@@ -1037,7 +1175,14 @@ async function handleBskyCallback(
 ): Promise<Response> {
   const session = await getSession(env, request);
   if (!session) {
-    return htmlPage("エラー", "<p>ログインが必要です。</p>");
+    return renderMessage({
+      title: "エラー",
+      heading: "ログインが必要です",
+      tone: "error",
+      body: "<p>Twitchでログインしてから、もう一度お試しください。</p>",
+      primary: { href: LOGIN_PATH, label: "Twitchでログインする" },
+      session: null,
+    });
   }
   try {
     const { did } = await completeBskyAuthorization(env, new URL(request.url).searchParams);
@@ -1046,10 +1191,14 @@ async function handleBskyCallback(
     return new Response(null, { status: 302, headers: { Location: SETTINGS_PATH } });
   } catch (err) {
     logError("bsky", "oauth callback failed", err, { userId: session.twitchUserId });
-    return htmlPage(
-      "エラー",
-      "<p>Bluesky連携に失敗しました。もう一度お試しください。</p>",
-    );
+    return renderMessage({
+      title: "エラー",
+      heading: "Bluesky連携に失敗しました",
+      tone: "error",
+      body: "<p>もう一度お試しください。</p>",
+      secondary: { href: SETTINGS_PATH, label: "Bluesky設定に戻る" },
+      session,
+    });
   }
 }
 
@@ -1061,7 +1210,7 @@ async function handleBskyDisconnect(
   const form = await request.formData().catch(() => null);
   const csrf = typeof form?.get("csrf") === "string" ? form.get("csrf") : null;
   if (!session || csrf !== session.csrf) {
-    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+    return renderInvalidRequest(session);
   }
   await disconnectBsky(env, session.twitchUserId);
   logInfo("bsky", "disconnected", { userId: session.twitchUserId });
@@ -1076,7 +1225,7 @@ async function handleChannelPostingSettings(
   const form = await request.formData().catch(() => null);
   const csrf = typeof form?.get("csrf") === "string" ? form.get("csrf") : null;
   if (!session || csrf !== session.csrf) {
-    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+    return renderInvalidRequest(session);
   }
   const connectionIdRaw = form?.get("connection_id");
   const connectionId =
@@ -1085,14 +1234,21 @@ async function handleChannelPostingSettings(
   const postTemplate =
     typeof postTemplateRaw === "string" ? postTemplateRaw.trim() : "";
   if (!Number.isSafeInteger(connectionId) || connectionId <= 0) {
-    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+    return renderInvalidRequest(session);
   }
   const templateError = validatePostTemplate(postTemplate);
   if (templateError) {
-    return htmlPage(
-      "エラー",
-      `<p>${escapeHtml(templateError)}</p><p><a href="${CHANNELS_PATH}#channel-${connectionId}">戻る</a></p>`,
-    );
+    return renderMessage({
+      title: "エラー",
+      heading: "投稿文を確認してください",
+      tone: "error",
+      body: `<p>${escapeHtml(templateError)}</p>`,
+      secondary: {
+        href: `${CHANNELS_PATH}#channel-${connectionId}`,
+        label: "チャンネル設定に戻る",
+      },
+      session,
+    });
   }
   try {
     const updated = await updateConnectionPostingSettings(
@@ -1107,10 +1263,14 @@ async function handleChannelPostingSettings(
       },
     );
     if (!updated) {
-      return htmlPage(
-        "エラー",
-        "<p>チャンネル設定を保存できませんでした。連携状態を確認してください。</p>",
-      );
+      return renderMessage({
+        title: "エラー",
+        heading: "チャンネル設定を保存できませんでした",
+        tone: "error",
+        body: "<p>チャンネルの連携状態を確認してください。</p>",
+        secondary: { href: CHANNELS_PATH, label: "チャンネル連携に戻る" },
+        session,
+      });
     }
     logInfo("settings", "updated channel posting preference", {
       userId: session.twitchUserId,
@@ -1127,11 +1287,17 @@ async function handleChannelPostingSettings(
       userId: session.twitchUserId,
       connectionId,
     });
-    return htmlPage(
-      "エラー",
-      `<p>設定の保存に失敗しました。</p>
-       <p><a href="${CHANNELS_PATH}#channel-${connectionId}">戻る</a></p>`,
-    );
+    return renderMessage({
+      title: "エラー",
+      heading: "設定の保存に失敗しました",
+      tone: "error",
+      body: "<p>時間をおいてもう一度お試しください。</p>",
+      secondary: {
+        href: `${CHANNELS_PATH}#channel-${connectionId}`,
+        label: "チャンネル設定に戻る",
+      },
+      session,
+    });
   }
 }
 
@@ -1183,7 +1349,7 @@ async function handleSettings(
          </div>
        </section>
      </article>`,
-    { session },
+    { session, currentPath: SETTINGS_PATH },
   );
 }
 

@@ -292,7 +292,7 @@ describe("サポートページ(HTTP)", () => {
     expect(body).toContain("有効化しました");
     expect(body).toContain("プラン: サポーター");
     expect(body).toContain('href="/channels"');
-    expect(body).toContain("マルチチャンネル設定へ進む");
+    expect(body).toContain("チャンネル設定を開く");
 
     const licenses = await listEntitlements(env0, "user-1");
     expect(licenses).toHaveLength(1);
