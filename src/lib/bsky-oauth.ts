@@ -1,4 +1,12 @@
-import { OAuthClient, type HandleResolver, type OAuthClientMetadataInput, type RuntimeImplementation, type SessionStore, type StateStore } from "@atproto/oauth-client";
+import {
+  OAuthClient,
+  type Fetch,
+  type HandleResolver,
+  type OAuthClientMetadataInput,
+  type RuntimeImplementation,
+  type SessionStore,
+  type StateStore,
+} from "@atproto/oauth-client";
 import type { ResolvedHandle } from "@atproto-labs/handle-resolver";
 import { WebcryptoKey } from "@atproto/jwk-webcrypto";
 import { SimpleStoreMemory } from "@atproto-labs/simple-store-memory";
@@ -19,6 +27,8 @@ const CLIENT_ID = "https://orbsky.bluemoon.works/oauth-client-metadata.json";
 const REDIRECT_URI = "https://orbsky.bluemoon.works/auth/bluesky/callback";
 const OAUTH_STATE_PREFIX = "bsky_oauth_state:";
 const OAUTH_STATE_TTL = 10 * 60;
+const PLC_DIRECTORY_ORIGIN = "https://plc.directory";
+const PLC_RETRY_DELAYS_MS = [100, 250] as const;
 
 export const BSKY_CLIENT_METADATA: OAuthClientMetadataInput = {
   client_id: CLIENT_ID,
@@ -42,14 +52,95 @@ function createHandleResolver(): HandleResolver {
     async resolve(handle, options) {
       try {
         const url = `https://${handle}/.well-known/atproto-did`;
-        const res = await fetch(url, { signal: options?.signal, redirect: "follow" });
+        const res = await fetch(url, {
+          signal: options?.signal,
+          redirect: "follow",
+        });
         if (!res.ok) return null;
-      const did = (await res.text()).trim();
-      return (did.startsWith("did:") ? did : null) as ResolvedHandle;
+        const did = (await res.text()).trim();
+        return (did.startsWith("did:") ? did : null) as ResolvedHandle;
       } catch {
         return null;
       }
     },
+  };
+}
+
+type RetryWait = (ms: number, signal: AbortSignal) => Promise<void>;
+
+function isPlcDidRequest(request: Request): boolean {
+  if (request.method !== "GET") return false;
+  const url = new URL(request.url);
+  if (url.origin !== PLC_DIRECTORY_ORIGIN) return false;
+  try {
+    return decodeURIComponent(url.pathname).startsWith("/did:plc:");
+  } catch {
+    return false;
+  }
+}
+
+function isRetryablePlcResponse(response: Response): boolean {
+  return (
+    response.status === 408 ||
+    response.status === 429 ||
+    response.status >= 500
+  );
+}
+
+async function waitForRetry(ms: number, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted();
+  await new Promise<void>((resolve, reject) => {
+    let timeout: ReturnType<typeof setTimeout>;
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
+      clearTimeout(timeout);
+      reject(signal.reason);
+    };
+    timeout = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+}
+
+/**
+ * OAuth SDK の全通信に使う fetch。
+ * 本人確認に必須な PLC DID 文書の取得だけ、一時的なネットワーク失敗・
+ * 408/429/5xx を短時間で再試行する。POST や他ホストは重複送信しない。
+ */
+export function createOAuthFetch(
+  baseFetch: Fetch = fetch,
+  wait: RetryWait = waitForRetry,
+): Fetch {
+  return async (input, init) => {
+    const request = new Request(input, init);
+    if (!isPlcDidRequest(request)) {
+      return baseFetch.call(globalThis, input, init);
+    }
+
+    for (let attempt = 0; ; attempt += 1) {
+      request.signal.throwIfAborted();
+      try {
+        const response = await baseFetch.call(globalThis, request.clone());
+        if (
+          !isRetryablePlcResponse(response) ||
+          attempt === PLC_RETRY_DELAYS_MS.length
+        ) {
+          return response;
+        }
+        await response.body?.cancel().catch(() => undefined);
+      } catch (err) {
+        if (
+          request.signal.aborted ||
+          attempt === PLC_RETRY_DELAYS_MS.length
+        ) {
+          throw err;
+        }
+      }
+      await wait(PLC_RETRY_DELAYS_MS[attempt], request.signal);
+    }
   };
 }
 
@@ -168,6 +259,7 @@ export function getOAuthClient(env: AppEnv): OAuthClient {
     responseMode: "query",
     clientMetadata: BSKY_CLIENT_METADATA,
     handleResolver: createHandleResolver(),
+    fetch: createOAuthFetch(),
     runtimeImplementation,
     stateStore: createKvStateStore(env),
     sessionStore: createD1SessionStore(env),

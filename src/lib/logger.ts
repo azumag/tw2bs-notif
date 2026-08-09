@@ -17,6 +17,17 @@ export function logError(
   };
   if (err instanceof Error) {
     errFields.error = err.message;
+    const causes: string[] = [];
+    const seen = new Set<Error>([err]);
+    let cause: unknown = err.cause;
+    while (cause instanceof Error && causes.length < 4 && !seen.has(cause)) {
+      seen.add(cause);
+      causes.push(`${cause.name}: ${cause.message}`);
+      cause = cause.cause;
+    }
+    if (causes.length > 0) {
+      errFields.errorCauses = causes;
+    }
   } else if (err !== undefined) {
     errFields.error = String(err);
   }

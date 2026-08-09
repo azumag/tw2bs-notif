@@ -16,6 +16,7 @@ import {
   bindBskySessionToUser,
   createD1SessionStore,
   createKvStateStore,
+  createOAuthFetch,
   disconnectBsky,
   getBskyDidForUser,
 } from "../src/lib/bsky-oauth";
@@ -139,6 +140,116 @@ describe("KV ステートストア", () => {
 
     await store.del("state-1");
     await expect(store.get("state-1")).resolves.toBeUndefined();
+  });
+});
+
+describe("PLC DID 解決 fetch", () => {
+  it.each([408, 429, 503])(
+    "PLC の一時的な HTTP %i を再試行する",
+    async (status) => {
+      const baseFetch = vi
+        .fn<typeof fetch>()
+        .mockResolvedValueOnce(new Response("temporary", { status }))
+        .mockResolvedValueOnce(
+          Response.json({ id: "did:plc:test" }, { status: 200 }),
+        );
+      const waits: number[] = [];
+      const oauthFetch = createOAuthFetch(baseFetch, async (ms) => {
+        waits.push(ms);
+      });
+
+      const response = await oauthFetch(
+        "https://plc.directory/did%3Aplc%3Atest",
+      );
+
+      expect(response.status).toBe(200);
+      expect(baseFetch).toHaveBeenCalledTimes(2);
+      expect(waits).toEqual([100]);
+    },
+  );
+
+  it("PLC のネットワークエラーを最大3回まで再試行する", async () => {
+    const baseFetch = vi
+      .fn<typeof fetch>()
+      .mockRejectedValue(new TypeError("down"));
+    const waits: number[] = [];
+    const oauthFetch = createOAuthFetch(baseFetch, async (ms) => {
+      waits.push(ms);
+    });
+
+    await expect(
+      oauthFetch("https://plc.directory/did:plc:test"),
+    ).rejects.toThrow("down");
+    expect(baseFetch).toHaveBeenCalledTimes(3);
+    expect(waits).toEqual([100, 250]);
+  });
+
+  it.each([
+    {
+      label: "PLC DID への POST",
+      input: "https://plc.directory/did:plc:test",
+      init: { method: "POST" },
+    },
+    {
+      label: "PLC の DID 以外のパス",
+      input: "https://plc.directory/other",
+      init: undefined,
+    },
+    {
+      label: "PLC 以外のホスト",
+      input: "https://example.com/did:plc:test",
+      init: undefined,
+    },
+  ])("$label は 503 でも再試行しない", async ({ input, init }) => {
+    const baseFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("temporary", { status: 503 }));
+    const wait = vi.fn(async () => undefined);
+    const oauthFetch = createOAuthFetch(baseFetch, wait);
+
+    const response = await oauthFetch(input, init);
+
+    expect(response.status).toBe(503);
+    expect(baseFetch).toHaveBeenCalledTimes(1);
+    expect(wait).not.toHaveBeenCalled();
+  });
+
+  it("開始前に abort 済みなら PLC へ送信しない", async () => {
+    const controller = new AbortController();
+    controller.abort(new DOMException("stopped", "AbortError"));
+    const baseFetch = vi.fn<typeof fetch>();
+    const oauthFetch = createOAuthFetch(baseFetch);
+
+    await expect(
+      oauthFetch(
+        new Request("https://plc.directory/did:plc:test", {
+          signal: controller.signal,
+        }),
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(baseFetch).not.toHaveBeenCalled();
+  });
+
+  it("再試行待機中に abort されたら次の fetch を送信しない", async () => {
+    const controller = new AbortController();
+    const baseFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response("temporary", { status: 503 }))
+      .mockResolvedValueOnce(new Response("ok", { status: 200 }));
+    const oauthFetch = createOAuthFetch(baseFetch);
+    setTimeout(
+      () => controller.abort(new DOMException("stopped", "AbortError")),
+      10,
+    );
+
+    await expect(
+      oauthFetch(
+        new Request("https://plc.directory/did:plc:test", {
+          signal: controller.signal,
+        }),
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(baseFetch).toHaveBeenCalledTimes(1);
   });
 });
 
