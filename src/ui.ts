@@ -1072,6 +1072,19 @@ tr:last-child td { border-bottom: 0; }
 .disclosure-content h3 { margin: 1rem 0 0.35rem; color: var(--text-strong); font-size: 0.95rem; }
 .disclosure-content h3:first-child { margin-top: 0; }
 
+/* 補足の但し書き。警告ではないので、控えめな面で囲うだけにする。 */
+.callout {
+  border: 1px solid color-mix(in srgb, var(--sky) 22%, var(--border));
+  border-radius: 10px;
+  background: var(--sky-soft);
+  color: var(--muted-strong);
+  padding: 0.8rem 0.95rem;
+  font-size: 0.92rem;
+  line-height: 1.65;
+}
+
+.callout strong { color: var(--text-strong); }
+
 .support-page { max-width: 860px; }
 .support-code-form { display: flex; align-items: end; gap: 0.75rem; margin-top: 0.9rem; }
 .support-code-form .field { flex: 1; margin: 0; }
