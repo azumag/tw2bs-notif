@@ -536,7 +536,7 @@ describe("設定ページと連携ルート", () => {
     expect(body).not.toContain("name=\"handle\"");
     expect(body).toContain("配信開始時の自動ポスト");
     expect(body).toContain('href="/channels"');
-    expect(body).toContain("チャンネル別の自動ポスト設定を開く");
+    expect(body).toContain("投稿設定を開く");
     expect(body).toContain("すべてのプランで利用できます");
   });
 

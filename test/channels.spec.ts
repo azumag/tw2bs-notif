@@ -236,10 +236,38 @@ describe("チャンネル連携ページ", () => {
     expect(body).toContain("{url}");
     expect(body).toContain("すべてのプランで利用できます");
     expect(body).toContain('class="page-shell channels-page"');
-    expect(body).toContain("data-channel-tab");
+    expect(body).toContain("data-channel-panel");
     expect(body).toContain("data-posting-form");
     expect(body).toContain("data-preview-text");
     expect(body).toContain('role="switch"');
+    expect(body).toContain("management-disclosure");
+    expect(body).not.toContain('class="progress-strip"');
+    expect(body).not.toContain('role="tablist"');
+    expect(body).not.toContain('class="channel-tab');
+  });
+
+  it("複数チャンネルのときだけチャンネル選択タブを表示する", async () => {
+    const env0 = makeEnv();
+    const { cookie } = await loginAs(env0);
+    await env0.DB.prepare(
+      `INSERT INTO connections
+         (user_id, twitch_channel_id, twitch_login, twitch_display_name)
+       VALUES ('12345', '12345', 'azumagbanjo', 'あずまぐ'),
+              ('12345', '67890', 'azumagsandbox', 'azumagsandbox')`,
+    ).run();
+
+    const res = await fetchAs(
+      env0,
+      new Request("https://example.com/channels", {
+        headers: { Cookie: cookie },
+      }),
+    );
+    const body = await res.text();
+
+    expect(body).toContain("編集するチャンネル");
+    expect(body).toContain('role="tablist"');
+    expect(body).toContain('class="channel-tab');
+    expect(body).toContain("azumagsandbox");
   });
 
   it("無料ユーザーでもチャンネル別の本文・タイトル・カテゴリ設定を保存できる", async () => {
