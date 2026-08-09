@@ -96,6 +96,7 @@ describe("クライアントメタデータ", () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as typeof BSKY_CLIENT_METADATA;
     expect(body.client_id).toBe(BSKY_CLIENT_METADATA.client_id);
+    expect(body.policy_uri).toBe("https://orbsky.bluemoon.works/privacy");
     expect(body.scope).toContain("repo:app.bsky.actor.status");
     expect(body.scope).toContain("repo:app.bsky.feed.post");
     expect(body.redirect_uris).toContain(

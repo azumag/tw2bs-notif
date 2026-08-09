@@ -10,6 +10,7 @@ Twitch 配信開始を EventSub で検知し、Bluesky の streaming status(`app
 
 - Twitch アカウントでログイン
 - 機能概要・使い方(/guide): ログイン前から、初期設定・自動ポスト変数・無料／特典の違いを確認可能
+- プライバシーポリシー(/privacy): 取得情報、利用目的、保存期間、外部サービス、削除方法を公開
 - チャンネル連携(/channels): 自分のチャンネルを登録 → 配信開始/終了を Bluesky に反映
   - 配信中バッジ + twitch.tv リンクカード(embed)
   - 配信開始時の通常ポストは `/channels` でチャンネルごとにON/OFF可能(全プラン、デフォルトON)

@@ -26,6 +26,7 @@ describe("tw2bs-notif worker", () => {
     const body = await response.text();
     expect(body).toContain("Twitchでログイン");
     expect(body).toContain('href="/guide"');
+    expect(body).toContain('href="/privacy"');
   });
 
   it("ログイン前でも機能概要・使い方ページを読める", async () => {
@@ -41,6 +42,21 @@ describe("tw2bs-notif worker", () => {
     expect(body).toContain("無料利用と特典");
     expect(body).toContain("twica");
     expect(body).toContain('href="https://twica.bluemoon.works/plans"');
+    expect(body).toContain('href="/privacy"');
+  });
+
+  it("ログイン前でもプライバシーポリシーを読める", async () => {
+    const response = await exports.default.fetch("https://example.com/privacy");
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain("プライバシーポリシー");
+    expect(body).toContain("Twitchアカウントのメールアドレスを保存しません");
+    expect(body).toContain("Blueskyのパスワードは取得・保存しません");
+    expect(body).toContain("ログインセッションは最長30日");
+    expect(body).toContain("ログアウトはブラウザのログインセッションのみを削除");
+    expect(body).toContain("https://legal.twitch.com/legal/privacy-notice/");
+    expect(body).toContain("https://bsky.social/about/support/privacy-policy");
+    expect(body).toContain("https://www.cloudflare.com/privacypolicy/");
   });
 
   it("can read and write KV values", async () => {

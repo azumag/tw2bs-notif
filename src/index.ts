@@ -60,6 +60,7 @@ const LOGIN_PATH = "/auth/twitch/login";
 const CALLBACK_PATH = "/auth/twitch/callback";
 const LOGOUT_PATH = "/auth/logout";
 const GUIDE_PATH = "/guide";
+const PRIVACY_PATH = "/privacy";
 const CHANNELS_PATH = "/channels";
 const CHANNELS_CONNECT_PATH = "/channels/connect";
 const CHANNELS_ADD_PATH = "/channels/add";
@@ -73,6 +74,11 @@ const SUB_DISABLE_PATH = "/support/disable-subscription";
 const SUB_ENABLE_PATH = "/support/enable-subscription";
 const FANBOX_URL = "https://azumag.fanbox.cc/";
 const TWICA_URL = "https://twica.bluemoon.works/plans";
+const TWITCH_PRIVACY_URL = "https://legal.twitch.com/legal/privacy-notice/";
+const BSKY_PRIVACY_URL = "https://bsky.social/about/support/privacy-policy";
+const CLOUDFLARE_PRIVACY_URL = "https://www.cloudflare.com/privacypolicy/";
+const PRIVACY_CONTACT_URL =
+  "https://github.com/azumag/tw2bs-notif/issues/new";
 const BSKY_LOGIN_PATH = "/auth/bluesky/login";
 const BSKY_CALLBACK_PATH = "/auth/bluesky/callback";
 const BSKY_DISCONNECT_PATH = "/auth/bluesky/disconnect";
@@ -82,7 +88,7 @@ const WEBHOOK_SECRET_KEY = "twitch:webhook_secret";
 
 function htmlPage(title: string, body: string): Response {
   return new Response(
-    `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><title>${title}</title></head><body>${body}</body></html>`,
+    `<!DOCTYPE html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title></head><body>${body}<footer><hr><nav aria-label="フッターナビゲーション"><a href="/">トップ</a> · <a href="${GUIDE_PATH}">機能概要・使い方</a> · <a href="${PRIVACY_PATH}">プライバシーポリシー</a></nav></footer></body></html>`,
     { status: 200, headers: { "Content-Type": "text/html; charset=utf-8" } },
   );
 }
@@ -220,6 +226,103 @@ function renderGuide(
 
      <h2>orbskyを始める</h2>
      ${startAction}`,
+  );
+}
+
+function renderPrivacy(): Response {
+  return htmlPage(
+    "orbsky - プライバシーポリシー",
+    `<h1>プライバシーポリシー</h1>
+     <p>最終更新日: 2026年8月9日</p>
+     <p>orbsky（以下「本サービス」）は、Twitchの配信状態をBlueskyへ反映するために必要な範囲で、利用者に関する情報を取り扱います。</p>
+     <p><a href="/">← トップへ戻る</a></p>
+
+     <h2>1. 取得・保存する情報</h2>
+     <h3>Twitchに関する情報</h3>
+     <ul>
+       <li>TwitchユーザーID、ユーザー名、表示名、プロフィール画像URL</li>
+       <li>OAuthアクセストークン、リフレッシュトークン、認可スコープ、有効期限</li>
+       <li>サブスク特典の判定結果、確認日時、確認機能の設定</li>
+       <li>連携したTwitchチャンネルのID、ユーザー名、表示名</li>
+     </ul>
+     <p>Twitch認証では <code>user:read:email</code> と <code>user:read:subscriptions</code> の権限を要求しますが、本サービスはTwitchアカウントのメールアドレスを保存しません。</p>
+
+     <h3>Blueskyに関する情報</h3>
+     <ul>
+       <li>BlueskyアカウントのDID</li>
+       <li>配信中ステータスと投稿を操作するためのOAuthセッション情報</li>
+     </ul>
+     <p>本サービスが要求するBlueskyの権限は、配信中ステータスとフィード投稿の作成に限定しています。Blueskyのパスワードは取得・保存しません。</p>
+
+     <h3>設定・特典に関する情報</h3>
+     <ul>
+       <li>チャンネルごとの自動ポストON/OFF、本文テンプレート、タイトル・カテゴリの使用設定</li>
+       <li>サポートコードまたはTwitchサブスクによる特典の有効化状態、プラン、日時</li>
+     </ul>
+     <p>入力されたサポートコードはハッシュ値で照合し、平文のコードを保存しません。また、コードをFANBOXやtwicaへ送信することはありません。</p>
+
+     <h3>技術情報</h3>
+     <ul>
+       <li>ログイン維持に必要なセッションクッキー</li>
+       <li>OAuth認証に必要な一時的なstate情報</li>
+       <li>アクセス日時、処理対象のアカウント・チャンネル識別子、処理結果、エラーなどの運用ログ</li>
+     </ul>
+     <p>本サービスは広告配信や行動追跡を目的としたCookie、アクセス解析ツールを使用していません。</p>
+
+     <h2>2. 利用目的</h2>
+     <ul>
+       <li>利用者の認証とログイン状態の維持</li>
+       <li>TwitchチャンネルとBlueskyアカウントの連携</li>
+       <li>配信開始・終了の検知、配信中ステータスの表示・解除、自動ポスト</li>
+       <li>チャンネル別設定、サポート特典、マルチチャンネル機能の提供</li>
+       <li>不正利用の防止、障害調査、セキュリティ確保、サービス改善</li>
+       <li>法令上必要な対応</li>
+     </ul>
+
+     <h2>3. 公開される情報</h2>
+     <p>利用者がBluesky連携を有効にすると、配信中ステータス、Twitchチャンネルへのリンク、および設定に応じた自動ポストがBlueskyとAT Protocolネットワーク上で公開されます。投稿本文には、設定に応じてTwitchの配信タイトル、カテゴリ、チャンネル名、URLが含まれます。</p>
+
+     <h2>4. Cookieと保存期間</h2>
+     <ul>
+       <li>ログインセッションは最長30日で失効します。</li>
+       <li>OAuth認証用の一時情報は原則10分で失効します。</li>
+       <li>アカウント連携、設定、特典情報は、機能提供・運用に必要な期間または削除依頼へ対応するまで保存します。</li>
+       <li>運用ログは、障害調査とセキュリティ確保に必要な期間保存します。</li>
+     </ul>
+     <p>ログアウトはブラウザのログインセッションのみを削除し、アカウント連携や設定情報は削除しません。</p>
+
+     <h2>5. 外部サービスと国外での取扱い</h2>
+     <p>本サービスは、機能提供のために次の外部サービスを利用します。これらの事業者や関連するインフラにより、日本国外で情報が処理・保存される場合があります。</p>
+     <ul>
+       <li><a href="${TWITCH_PRIVACY_URL}" target="_blank" rel="noopener noreferrer">Twitch</a>: ログイン、アカウント・配信情報、EventSub、サブスク判定</li>
+       <li><a href="${BSKY_PRIVACY_URL}" target="_blank" rel="noopener noreferrer">Bluesky / AT Protocol</a>: OAuth認証、配信中ステータス、自動ポスト</li>
+       <li><a href="${CLOUDFLARE_PRIVACY_URL}" target="_blank" rel="noopener noreferrer">Cloudflare</a>: ホスティング、データベース、KV、Queue、運用ログ</li>
+     </ul>
+     <p>各外部サービスでの情報の取扱いは、それぞれのプライバシーポリシーもご確認ください。</p>
+
+     <h2>6. 第三者提供</h2>
+     <p>本サービスは、個人情報を販売しません。機能提供に必要な外部サービスへの送信、利用者本人の操作に基づく公開、法令に基づく場合を除き、本人の同意なく第三者へ提供しません。</p>
+
+     <h2>7. 安全管理</h2>
+     <p>OAuthトークンとBlueskyセッションは暗号化して保存します。また、HTTPS、HttpOnly・Secure属性を付けたセッションクッキー、CSRF対策、必要最小限のOAuth権限などを用いて情報を保護します。ただし、インターネット上の通信・保存について完全な安全性を保証するものではありません。</p>
+
+     <h2>8. 利用者による管理・削除</h2>
+     <ul>
+       <li>自動ポストは、チャンネルごとに停止できます。</li>
+       <li>チャンネル連携、Bluesky連携、サポート特典は各設定画面から解除できます。</li>
+       <li>保存情報の確認、訂正、利用停止、アカウントデータの削除を希望する場合は、下記窓口へご連絡ください。</li>
+     </ul>
+
+     <h2>9. 未成年者の利用</h2>
+     <p>未成年者は、TwitchおよびBlueskyの利用条件に従い、必要な場合は保護者の同意を得たうえで本サービスを利用してください。</p>
+
+     <h2>10. ポリシーの変更</h2>
+     <p>機能、法令、外部サービスの変更などに応じて本ポリシーを改定することがあります。重要な変更がある場合は、本サービス上で分かりやすくお知らせします。</p>
+
+     <h2>11. お問い合わせ</h2>
+     <p>運営者: azumag</p>
+     <p><a href="${PRIVACY_CONTACT_URL}" target="_blank" rel="noopener noreferrer">GitHubの問い合わせ窓口</a></p>
+     <p>問い合わせページは公開されます。OAuthトークン、サポートコード、メールアドレスなどの秘密情報・個人情報は書き込まないでください。</p>`,
   );
 }
 
@@ -924,6 +1027,9 @@ export default {
     }
     if (url.pathname === LOGOUT_PATH && request.method === "POST") {
       return handleLogout(request, env);
+    }
+    if (url.pathname === PRIVACY_PATH && request.method === "GET") {
+      return renderPrivacy();
     }
     if (url.pathname === GUIDE_PATH && request.method === "GET") {
       const session = await getSession(env, request);
