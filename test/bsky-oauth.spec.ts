@@ -17,6 +17,7 @@ import {
   createD1SessionStore,
   createKvStateStore,
   createOAuthFetch,
+  createWorkersDidResolver,
   disconnectBsky,
   getBskyDidForUser,
 } from "../src/lib/bsky-oauth";
@@ -335,6 +336,144 @@ describe("PLC DID 解決 fetch", () => {
       ),
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(baseFetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Workers DID resolver", () => {
+  const did = "did:plc:dekk6rd3sp52ocea6qmalxm2" as const;
+  const document = {
+    id: did,
+    alsoKnownAs: ["at://azumag.bsky.social"],
+    service: [
+      {
+        id: "#atproto_pds",
+        type: "AtprotoPersonalDataServer",
+        serviceEndpoint: "https://pds.example.com",
+      },
+    ],
+  };
+
+  it("上流の Request 生成を介さず manual で PLC DID 文書を取得する", async () => {
+    const requests: Array<{ url: string; redirect: string }> = [];
+    const baseFetch = vi.fn<typeof fetch>(async (input, init) => {
+      const request = new Request(input, init);
+      requests.push({ url: request.url, redirect: request.redirect });
+      return new Response(JSON.stringify(document), {
+        status: 200,
+        headers: { "Content-Type": "application/did+ld+json; charset=utf-8" },
+      });
+    });
+    const resolver = createWorkersDidResolver(createOAuthFetch(baseFetch));
+
+    const resolved = await resolver.resolve(did);
+
+    expect(resolved.id).toBe(did);
+    expect(requests).toEqual([
+      {
+        url: `https://plc.directory/${encodeURIComponent(did)}`,
+        redirect: "manual",
+      },
+    ]);
+  });
+
+  it("PLC のリダイレクト応答を追従も再試行もしない", async () => {
+    const baseFetch = vi.fn<typeof fetch>(async (input, init) => {
+      expect(new Request(input, init).redirect).toBe("manual");
+      return new Response(null, {
+        status: 302,
+        headers: { Location: "https://example.com/redirected" },
+      });
+    });
+    const wait = vi.fn(async () => undefined);
+    const resolver = createWorkersDidResolver(createOAuthFetch(baseFetch, wait));
+
+    await expect(resolver.resolve(did)).rejects.toMatchObject({
+      code: "did-fetch-error",
+      status: 302,
+    });
+    expect(baseFetch).toHaveBeenCalledTimes(1);
+    expect(wait).not.toHaveBeenCalled();
+  });
+
+  it("要求した DID と異なる文書を拒否する", async () => {
+    const baseFetch = vi.fn<typeof fetch>().mockResolvedValue(
+      Response.json(
+        { ...document, id: "did:plc:aaaaaaaaaaaaaaaaaaaaaaaa" },
+        { status: 200 },
+      ),
+    );
+    const resolver = createWorkersDidResolver(createOAuthFetch(baseFetch));
+
+    await expect(resolver.resolve(did)).rejects.toMatchObject({
+      code: "did-document-id-mismatch",
+    });
+  });
+
+  it("ネットワーク失敗を did-fetch-error に変換する", async () => {
+    const cause = new TypeError("network failed");
+    const baseFetch = vi.fn<typeof fetch>().mockRejectedValue(cause);
+    const resolver = createWorkersDidResolver(
+      createOAuthFetch(baseFetch, async () => undefined),
+    );
+
+    await expect(resolver.resolve(did)).rejects.toMatchObject({
+      code: "did-fetch-error",
+      status: 400,
+      cause,
+    });
+    expect(baseFetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("不正JSONを did-fetch-error として拒否する", async () => {
+    const baseFetch = vi.fn<typeof fetch>().mockResolvedValue(
+      new Response("{", {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const resolver = createWorkersDidResolver(createOAuthFetch(baseFetch));
+
+    await expect(resolver.resolve(did)).rejects.toMatchObject({
+      code: "did-fetch-error",
+      status: 502,
+      cause: expect.any(Error),
+    });
+  });
+
+  it("スキーマ不正を did-document-format-error として拒否する", async () => {
+    const baseFetch = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(Response.json({ id: did, service: "invalid" }));
+    const resolver = createWorkersDidResolver(createOAuthFetch(baseFetch));
+
+    await expect(resolver.resolve(did)).rejects.toMatchObject({
+      code: "did-document-format-error",
+      status: 503,
+      cause: expect.any(Error),
+    });
+  });
+
+  it("ATProtoで有効なroot did:webを manual で取得する", async () => {
+    const webDid = "did:web:example.com" as const;
+    const baseFetch = vi.fn<typeof fetch>(async (input, init) => {
+      const request = new Request(input, init);
+      expect(request.url).toBe("https://example.com/.well-known/did.json");
+      expect(request.redirect).toBe("manual");
+      return Response.json({ id: webDid }, { status: 200 });
+    });
+    const resolver = createWorkersDidResolver(createOAuthFetch(baseFetch));
+
+    await expect(resolver.resolve(webDid)).resolves.toMatchObject({ id: webDid });
+  });
+
+  it("HTTPになるlocalhostのdid:webを取得前に拒否する", async () => {
+    const baseFetch = vi.fn<typeof fetch>();
+    const resolver = createWorkersDidResolver(createOAuthFetch(baseFetch));
+
+    await expect(resolver.resolve("did:web:localhost")).rejects.toMatchObject({
+      code: "did-web-http-not-allowed",
+    });
+    expect(baseFetch).not.toHaveBeenCalled();
   });
 });
 
