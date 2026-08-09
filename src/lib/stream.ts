@@ -3,6 +3,7 @@ import { STREAM_OFFLINE, STREAM_ONLINE } from "../types";
 import {
   clearLiveStatus,
   createStreamPost,
+  getSessionForUser,
   setLiveStatus,
   statusRecordExists,
 } from "./bluesky";
@@ -73,17 +74,31 @@ export async function processStreamEvent(
           return null;
         });
       const login = event.broadcasterUserLogin ?? stream?.userLogin;
-      await setLiveStatus(env, { uri: twitchUrl(login), title: stream?.title });
-      // 配信開始ポスト(設定 ON 時のみ)。失敗してもステータス設定には影響させない
-      if (env.BSKY_POST_ON_START === "true") {
-        try {
-          await createStreamPost(env, {
-            uri: twitchUrl(login),
-            title: stream?.title,
+      const input = { uri: twitchUrl(login), title: stream?.title };
+
+      // 連携ユーザーごとに Bluesky へ反映
+      for (const connection of connections) {
+        const session = await getSessionForUser(env, connection.userId);
+        if (!session) {
+          logInfo(C, "user has no bsky session, skipped", {
+            userId: connection.userId,
           });
-        } catch (err) {
-          logError(C, "stream post failed", err);
+          continue;
         }
+        await setLiveStatus(session, input);
+        if (env.BSKY_POST_ON_START === "true") {
+          try {
+            await createStreamPost(session, input);
+          } catch (err) {
+            logError(C, "stream post failed", err, {
+              userId: connection.userId,
+            });
+          }
+        }
+        logInfo(C, "set live", {
+          userId: connection.userId,
+          streamId: event.id ?? stream?.id,
+        });
       }
       await env.STATE.put(
         key,
@@ -94,10 +109,6 @@ export async function processStreamEvent(
           updated_at: new Date().toISOString(),
         } satisfies LiveState),
       );
-      logInfo(C, "set live", {
-        streamId: event.id ?? stream?.id,
-        uri: twitchUrl(login),
-      });
     } else {
       // stream.offline (id は存在しない)
       if (!state?.is_live) {
@@ -118,7 +129,14 @@ export async function processStreamEvent(
         });
         return;
       }
-      await clearLiveStatus(env);
+      for (const connection of connections) {
+        const session = await getSessionForUser(env, connection.userId);
+        if (!session) {
+          continue;
+        }
+        await clearLiveStatus(session);
+        logInfo(C, "cleared live status", { userId: connection.userId });
+      }
       await env.STATE.put(
         key,
         JSON.stringify({
@@ -126,7 +144,6 @@ export async function processStreamEvent(
           updated_at: new Date().toISOString(),
         } satisfies LiveState),
       );
-      logInfo(C, "cleared live status");
     }
   } catch (err) {
     // 失敗してもハンドラの応答には影響させない(waitUntil内で実行される)
@@ -153,14 +170,21 @@ export async function refreshStreamStatus(env: AppEnv): Promise<void> {
       const key = stateKey(connection.twitchChannelId);
       const state = await env.STATE.get<LiveState>(key, "json");
       const stream = states.get(connection.twitchChannelId);
+      const session = await getSessionForUser(env, connection.userId);
 
       if (stream) {
         // 配信中: record を再書き込みし、expiresAt(最大4h)の失効をリセット
         const needsStateUpdate = !state?.is_live || state.stream_id !== stream.id;
-        await setLiveStatus(env, {
-          uri: twitchUrl(stream.userLogin),
-          title: stream.title,
-        });
+        if (session) {
+          await setLiveStatus(session, {
+            uri: twitchUrl(stream.userLogin),
+            title: stream.title,
+          });
+        } else {
+          logInfo(C, "user has no bsky session, refresh skipped", {
+            userId: connection.userId,
+          });
+        }
         if (needsStateUpdate) {
           await env.STATE.put(
             key,
@@ -175,9 +199,11 @@ export async function refreshStreamStatus(env: AppEnv): Promise<void> {
         logInfo(C, "refreshed live status", { streamId: stream.id });
       } else {
         // 配信していない: KV が live のまま、または Bluesky record が残っている場合は自己修復
-        const recordExists = await statusRecordExists(env);
+        const recordExists = session ? await statusRecordExists(session) : false;
         if (state?.is_live || recordExists) {
-          await clearLiveStatus(env);
+          if (session) {
+            await clearLiveStatus(session);
+          }
           await env.STATE.put(
             key,
             JSON.stringify({

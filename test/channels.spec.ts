@@ -9,6 +9,15 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import worker from "../src/index";
 import type { AppEnv } from "../src/types";
 import { migrations } from "./migrations";
+
+const blueskyModule = await import("../src/lib/bluesky");
+vi.mock("../src/lib/bluesky", () => ({
+  clearLiveStatus: vi.fn(async () => {}),
+  getSessionForUser: vi.fn(async () => ({
+    did: "did:plc:test",
+    fetchHandler: async () => new Response(),
+  })),
+}));
 import { createSession } from "../src/lib/session";
 
 function makeEnv(): AppEnv {
@@ -117,6 +126,12 @@ beforeEach(async () => {
   await env.DB.prepare("DELETE FROM user_licenses").run();
   await env.DB.prepare("DELETE FROM support_codes").run();
   await env.STATE.put("twitch:webhook_secret", "webhook-secret");
+  vi.mocked(blueskyModule.clearLiveStatus).mockReset();
+  vi.mocked(blueskyModule.getSessionForUser).mockReset();
+  vi.mocked(blueskyModule.getSessionForUser).mockResolvedValue({
+    did: "did:plc:test",
+    fetchHandler: async () => new Response(),
+  } as never);
 });
 
 afterEach(() => {
@@ -511,7 +526,6 @@ describe("チャンネル連携ページ", () => {
 
   it("連携を解除すると connections が消え購読が削除され Bluesky が解除される", async () => {
     const deletedIds: string[] = [];
-    let bskyDeleteCalls = 0;
     mockFetch({
       "id.twitch.tv/oauth2/token": async () =>
         jsonResponse({
@@ -541,16 +555,6 @@ describe("チャンネル連携ページ", () => {
             },
           ],
         });
-      },
-      // Bluesky: セッション取得 + deleteRecord をモック
-      "com.atproto.server.createSession": async () =>
-        jsonResponse({
-          accessJwt: "bsky-jwt",
-          did: "did:plc:test",
-        }),
-      "com.atproto.repo.deleteRecord": async () => {
-        bskyDeleteCalls++;
-        return jsonResponse({ commit: { cid: "x", rev: "1" } });
       },
     });
     const env0 = makeEnv();
@@ -583,7 +587,7 @@ describe("チャンネル連携ページ", () => {
     // 購読削除が呼ばれた
     expect(deletedIds.sort()).toEqual(["sub-offline", "sub-online"]);
     // Bluesky ステータス解除が呼ばれた
-    expect(bskyDeleteCalls).toBeGreaterThan(0);
+    expect(blueskyModule.clearLiveStatus).toHaveBeenCalledTimes(1);
   });
 
   it("disconnect の誤った CSRF は拒否される", async () => {

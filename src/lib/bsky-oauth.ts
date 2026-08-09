@@ -1,0 +1,227 @@
+import { OAuthClient, type HandleResolver, type OAuthClientMetadataInput, type RuntimeImplementation, type SessionStore, type StateStore } from "@atproto/oauth-client";
+import type { ResolvedHandle } from "@atproto-labs/handle-resolver";
+import { WebcryptoKey } from "@atproto/jwk-webcrypto";
+import { SimpleStoreMemory } from "@atproto-labs/simple-store-memory";
+import type { Key } from "@atproto/jwk";
+import type { AppEnv } from "../types";
+import { decryptSecret, encryptSecret } from "./crypto";
+
+/**
+ * Bluesky OAuth(ユーザー別)クライアント。
+ * 細粒度スコープ(PoC 確認済み)で、status と feed.post のみの権限を発行する。
+ * セッションは D1(暗号化)に永続化し、DPoP 鍵は JWK として保存・復元する。
+ */
+
+export const BSKY_SCOPES =
+  "atproto repo:app.bsky.actor.status repo:app.bsky.feed.post";
+
+const CLIENT_ID = "https://orbsky.bluemoon.works/oauth-client-metadata.json";
+const REDIRECT_URI = "https://orbsky.bluemoon.works/auth/bluesky/callback";
+const OAUTH_STATE_PREFIX = "bsky_oauth_state:";
+const OAUTH_STATE_TTL = 10 * 60;
+
+export const BSKY_CLIENT_METADATA: OAuthClientMetadataInput = {
+  client_id: CLIENT_ID,
+  application_type: "web",
+  client_name: "orbsky",
+  client_uri: "https://orbsky.bluemoon.works",
+  redirect_uris: [REDIRECT_URI],
+  grant_types: ["authorization_code", "refresh_token"],
+  response_types: ["code"],
+  scope: BSKY_SCOPES,
+  token_endpoint_auth_method: "none",
+  dpop_bound_access_tokens: true,
+};
+
+/**
+ * ハンドル解決: HTTP Well-Known 方式のみ(Worker から DNS TXT は不可)。
+ * https://<handle>/.well-known/atproto-did から DID を取得する。
+ */
+function createHandleResolver(): HandleResolver {
+  return {
+    async resolve(handle, options) {
+      try {
+        const url = `https://${handle}/.well-known/atproto-did`;
+        const res = await fetch(url, { signal: options?.signal, redirect: "follow" });
+        if (!res.ok) return null;
+      const did = (await res.text()).trim();
+      return (did.startsWith("did:") ? did : null) as ResolvedHandle;
+      } catch {
+        return null;
+      }
+    },
+  };
+}
+
+const runtimeImplementation: RuntimeImplementation = {
+  // extractable: true が必須(privateJwk で JWK 化して永続化するため)
+  createKey: (algs: string[]) =>
+    WebcryptoKey.generate(algs, crypto.randomUUID(), { extractable: true }),
+  getRandomValues: (length: number) => {
+    const bytes = new Uint8Array(length);
+    crypto.getRandomValues(bytes);
+    return bytes;
+  },
+  digest: async (bytes: Uint8Array, algorithm: { name: string }) =>
+    new Uint8Array(await crypto.subtle.digest(algorithm.name, bytes)),
+};
+
+/**
+ * ストアの値を JWK 化して永続化するラッパー(NodeOAuthClient の toDpopKeyStore と同等)。
+ * dpopKey(Key インスタンス) ↔ dpopJwk(JSON) を変換する。
+ */
+function toJwkStore<Data extends { dpopKey: Key }>(
+  store: {
+    get: (key: string) => Promise<unknown>;
+    set: (key: string, value: unknown) => Promise<void>;
+    del: (key: string) => Promise<void>;
+  },
+) {
+  return {
+    async set(key: string, value: Data) {
+      const { dpopKey, ...data } = value;
+      const dpopJwk = dpopKey.privateJwk;
+      if (!dpopJwk) throw new Error("Private DPoP JWK is missing.");
+      await store.set(key, { ...data, dpopJwk });
+    },
+    async get(key: string) {
+      const result = (await store.get(key)) as
+        | ({ dpopJwk?: object } & Partial<Data>)
+        | undefined;
+      if (!result) return undefined;
+      const { dpopJwk, ...data } = result;
+      if (!dpopJwk) return undefined;
+      const dpopKey = await WebcryptoKey.fromJWK(dpopJwk as never);
+      return { ...data, dpopKey } as unknown as Data;
+    },
+    del: (key: string) => store.del(key),
+  };
+}
+
+/** OAuth 認可フロー中の state を KV に保存する(10分TTL) */
+export function createKvStateStore(env: AppEnv): StateStore {
+  return toJwkStore({
+    async get(key) {
+      const raw = await env.STATE.get(`${OAUTH_STATE_PREFIX}${key}`, "json");
+      return raw ?? undefined;
+    },
+    async set(key, value) {
+      await env.STATE.put(`${OAUTH_STATE_PREFIX}${key}`, JSON.stringify(value), {
+        expirationTtl: OAUTH_STATE_TTL,
+      });
+    },
+    async del(key) {
+      await env.STATE.delete(`${OAUTH_STATE_PREFIX}${key}`);
+    },
+  }) as unknown as StateStore;
+}
+
+/** Bluesky セッションを D1 に暗号化して永続化する */
+export function createD1SessionStore(env: AppEnv): SessionStore {
+  return toJwkStore({
+    async get(did) {
+      const row = await env.DB.prepare(
+        "SELECT session_json_enc AS enc FROM bsky_sessions WHERE did = ?",
+      )
+        .bind(did)
+        .first<{ enc: string }>();
+      if (!row) return undefined;
+      return JSON.parse(await decryptSecret(env, row.enc));
+    },
+    async set(did, value) {
+      const enc = await encryptSecret(env, JSON.stringify(value));
+      await env.DB.prepare(
+        `INSERT INTO bsky_sessions (did, twitch_user_id, session_json_enc)
+         VALUES (?, '', ?)
+         ON CONFLICT (did) DO UPDATE SET
+           session_json_enc = excluded.session_json_enc,
+           updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+      )
+        .bind(did, enc)
+        .run();
+    },
+    async del(did) {
+      await env.DB.prepare("DELETE FROM bsky_sessions WHERE did = ?")
+        .bind(did)
+        .run();
+    },
+  }) as unknown as SessionStore;
+}
+
+let client: OAuthClient | undefined;
+
+export function getOAuthClient(env: AppEnv): OAuthClient {
+  if (client) return client;
+  client = new OAuthClient({
+    responseMode: "query",
+    clientMetadata: BSKY_CLIENT_METADATA,
+    handleResolver: createHandleResolver(),
+    runtimeImplementation,
+    stateStore: createKvStateStore(env),
+    sessionStore: createD1SessionStore(env),
+    // 一時キャッシュ(isolate 内のみ。失効してもリトライで回復する)
+    authorizationServerMetadataCache: new SimpleStoreMemory({ max: 100 }),
+    protectedResourceMetadataCache: new SimpleStoreMemory({ max: 100 }),
+    dpopNonceCache: new SimpleStoreMemory({ max: 100, ttl: 60e3 }),
+  });
+  return client;
+}
+
+/** Bluesky 認可 URL を生成する(ユーザーのハンドルが必要) */
+export async function createBskyAuthorizeUrl(
+  env: AppEnv,
+  handle: string,
+): Promise<URL> {
+  return getOAuthClient(env).authorize(handle, { scope: BSKY_SCOPES });
+}
+
+/** コールバックを完了し、セッションを永続化する。DID を返す */
+export async function completeBskyAuthorization(
+  env: AppEnv,
+  params: URLSearchParams,
+): Promise<{ did: string }> {
+  const { session } = await getOAuthClient(env).callback(params);
+  return { did: session.did };
+}
+
+/** Twitch ユーザーに Bluesky DID を紐付ける */
+export async function bindBskySessionToUser(
+  env: AppEnv,
+  userId: string,
+  did: string,
+): Promise<void> {
+  await env.DB.prepare(
+    `UPDATE bsky_sessions SET twitch_user_id = ?
+     WHERE did = ?`,
+  )
+    .bind(userId, did)
+    .run();
+}
+
+/** ユーザーが Bluesky 連携済みか */
+export async function getBskyDidForUser(
+  env: AppEnv,
+  userId: string,
+): Promise<string | null> {
+  const row = await env.DB.prepare(
+    "SELECT did FROM bsky_sessions WHERE twitch_user_id = ?",
+  )
+    .bind(userId)
+    .first<{ did: string }>();
+  return row?.did ?? null;
+}
+
+/** Bluesky 連携を解除する(セッション削除 + リボーク) */
+export async function disconnectBsky(
+  env: AppEnv,
+  userId: string,
+): Promise<void> {
+  const did = await getBskyDidForUser(env, userId);
+  if (!did) return;
+  try {
+    await getOAuthClient(env).revoke(did);
+  } catch {
+    // リボーク失敗は無視(ローカル削除は行う)
+  }
+  await env.DB.prepare("DELETE FROM bsky_sessions WHERE did = ?").bind(did).run();
+}

@@ -7,4 +7,14 @@ export default defineConfig({
       wrangler: { configPath: "./wrangler.jsonc" },
     }),
   ],
+  test: {
+    deps: {
+      optimizer: {
+        ssr: {
+          enabled: true,
+          include: ["@atproto/oauth-client", "core-js"],
+        },
+      },
+    },
+  },
 });

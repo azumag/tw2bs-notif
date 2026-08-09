@@ -1,10 +1,13 @@
 import type { AppEnv } from "../types";
+import { getBskyDidForUser } from "./bsky-oauth";
 
-export const BSKY_BASE_URL = "https://bsky.social";
-const SESSION_CACHE_KEY = "bsky:session";
+/**
+ * Bluesky 書き込み(ユーザー別 OAuth セッション経由)。
+ * 細粒度スコープ(PoC 確認済み): app.bsky.actor.status + app.bsky.feed.post のみ。
+ */
 
-const STATUS_COLLECTION = "app.bsky.actor.status";
-const STATUS_RKEY = "self";
+export const STATUS_COLLECTION = "app.bsky.actor.status";
+export const STATUS_RKEY = "self";
 const MAX_SWAP_RETRIES = 5;
 // サーバー側で4時間にクランプされるため、大きめの値を設定する(docs/bluesky-status-api.md 参照)
 const DURATION_MINUTES = 720;
@@ -25,12 +28,6 @@ export interface LiveStatusRecord {
   };
 }
 
-interface SessionCache {
-  accessJwt: string;
-  did: string;
-  expires_at: number;
-}
-
 export class BlueskyError extends Error {
   constructor(
     public readonly status: number,
@@ -42,8 +39,21 @@ export class BlueskyError extends Error {
   }
 }
 
-async function bskyFetch(url: string, init?: RequestInit): Promise<Response> {
-  const res = await fetch(url, init);
+/**
+ * OAuth セッションで XRPC 呼び出しを行う(DPoP 付き、トークン自動リフレッシュ)。
+ * session は @atproto/oauth-client の OAuthSession(fetchHandler を持つ)。
+ */
+export interface BskySessionLike {
+  did: string;
+  fetchHandler: (pathname: string, init?: RequestInit) => Promise<Response>;
+}
+
+async function xrpc(
+  session: BskySessionLike,
+  pathname: string,
+  init?: RequestInit,
+): Promise<unknown> {
+  const res = await session.fetchHandler(pathname, init);
   if (!res.ok) {
     let message = `HTTP ${res.status}`;
     let error: string | undefined;
@@ -56,54 +66,17 @@ async function bskyFetch(url: string, init?: RequestInit): Promise<Response> {
     }
     throw new BlueskyError(res.status, message, error);
   }
-  return res;
-}
-
-interface SessionResponse {
-  accessJwt: string;
-  did: string;
-}
-
-export async function getSession(env: AppEnv): Promise<SessionCache> {
-  const cached = await env.STATE.get<SessionCache>(SESSION_CACHE_KEY, "json");
-  if (cached && cached.expires_at > Date.now() + 60_000) {
-    return cached;
-  }
-
-  const res = await bskyFetch(`${BSKY_BASE_URL}/xrpc/com.atproto.server.createSession`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      identifier: env.BSKY_HANDLE,
-      password: env.BSKY_APP_PASSWORD,
-    }),
-  });
-  const data = (await res.json()) as SessionResponse;
-  if (!data.accessJwt || !data.did) {
-    throw new BlueskyError(502, "invalid session response from Bluesky");
-  }
-
-  const session: SessionCache = {
-    accessJwt: data.accessJwt,
-    did: data.did,
-    expires_at: Date.now() + 100 * 60 * 1000,
-  };
-  await env.STATE.put(SESSION_CACHE_KEY, JSON.stringify(session), {
-    expirationTtl: 110 * 60,
-  });
-  return session;
+  return res.json();
 }
 
 async function getStatusRecordCid(
-  env: AppEnv,
-  session: SessionCache,
+  session: BskySessionLike,
 ): Promise<string | null> {
   try {
-    const res = await bskyFetch(
-      `${BSKY_BASE_URL}/xrpc/com.atproto.repo.getRecord?repo=${session.did}&collection=${STATUS_COLLECTION}&rkey=${STATUS_RKEY}`,
-      { headers: { Authorization: `Bearer ${session.accessJwt}` } },
-    );
-    const data = (await res.json()) as { cid?: string };
+    const data = (await xrpc(
+      session,
+      `/xrpc/com.atproto.repo.getRecord?repo=${session.did}&collection=${STATUS_COLLECTION}&rkey=${STATUS_RKEY}`,
+    )) as { cid?: string };
     return data.cid ?? null;
   } catch (err) {
     // record が未作成の場合 getRecord は 400 RecordNotFound を返す(初回設定パス)
@@ -114,143 +87,124 @@ async function getStatusRecordCid(
   }
 }
 
-async function putStatusRecord(
-  env: AppEnv,
-  session: SessionCache,
-  record: LiveStatusRecord,
-  swapRecord: string | null,
-): Promise<void> {
-  await bskyFetch(`${BSKY_BASE_URL}/xrpc/com.atproto.repo.putRecord`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${session.accessJwt}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      repo: session.did,
-      collection: STATUS_COLLECTION,
-      rkey: STATUS_RKEY,
-      record,
-      swapRecord,
-    }),
-  });
-}
-
 export async function setLiveStatus(
-  env: AppEnv,
+  session: BskySessionLike,
   input: { uri: string; title?: string; description?: string },
 ): Promise<void> {
-  await withSessionRefresh(env, async (session) => {
-    const record: LiveStatusRecord = {
-      $type: "app.bsky.actor.status",
-      status: "app.bsky.actor.status#live",
-      createdAt: new Date().toISOString(),
-      durationMinutes: DURATION_MINUTES,
-      embed: {
-        $type: "app.bsky.embed.external",
-        external: {
-          $type: "app.bsky.embed.external#external",
-          uri: input.uri,
-          // PDS は title を必須として検証する(空文字は許容)
-          title: input.title ?? "",
-          description: input.description ?? "",
-        },
+  const record: LiveStatusRecord = {
+    $type: "app.bsky.actor.status",
+    status: "app.bsky.actor.status#live",
+    createdAt: new Date().toISOString(),
+    durationMinutes: DURATION_MINUTES,
+    embed: {
+      $type: "app.bsky.embed.external",
+      external: {
+        $type: "app.bsky.embed.external#external",
+        uri: input.uri,
+        // PDS は title を必須として検証する(空文字は許容)
+        title: input.title ?? "",
+        description: input.description ?? "",
       },
-    };
+    },
+  };
 
-    for (let attempt = 0; attempt < MAX_SWAP_RETRIES; attempt++) {
-      const existingCid = await getStatusRecordCid(env, session);
-      try {
-        await putStatusRecord(env, session, record, existingCid);
-        return;
-      } catch (err) {
-        const isInvalidSwap =
-          err instanceof BlueskyError && err.error === "InvalidSwap";
-        if (!isInvalidSwap || attempt === MAX_SWAP_RETRIES - 1) {
-          throw err;
-        }
-      }
-    }
-  });
-}
-
-export async function statusRecordExists(env: AppEnv): Promise<boolean> {
-  const session = await getSession(env);
-  return (await getStatusRecordCid(env, session)) !== null;
-}
-
-export async function createStreamPost(
-  env: AppEnv,
-  input: { uri: string; title?: string; description?: string },
-): Promise<void> {
-  await withSessionRefresh(env, async (session) => {
-    await bskyFetch(`${BSKY_BASE_URL}/xrpc/com.atproto.repo.createRecord`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${session.accessJwt}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        repo: session.did,
-        collection: "app.bsky.feed.post",
-        record: {
-          $type: "app.bsky.feed.post",
-          text: `配信開始しました${input.title ? `: ${input.title}` : ""}`,
-          createdAt: new Date().toISOString(),
-          langs: ["ja"],
-          embed: {
-            $type: "app.bsky.embed.external",
-            external: {
-              $type: "app.bsky.embed.external#external",
-              uri: input.uri,
-              title: input.title ?? "",
-              description: input.description ?? "",
-            },
-          },
-        },
-      }),
-    });
-  });
-}
-
-export async function clearLiveStatus(env: AppEnv): Promise<void> {
-  await withSessionRefresh(env, async (session) => {
+  for (let attempt = 0; attempt < MAX_SWAP_RETRIES; attempt++) {
+    const existingCid = await getStatusRecordCid(session);
     try {
-      await bskyFetch(`${BSKY_BASE_URL}/xrpc/com.atproto.repo.deleteRecord`, {
+      await xrpc(session, "/xrpc/com.atproto.repo.putRecord", {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${session.accessJwt}`,
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           repo: session.did,
           collection: STATUS_COLLECTION,
           rkey: STATUS_RKEY,
+          record,
+          swapRecord: existingCid,
         }),
       });
+      return;
     } catch (err) {
-      if (err instanceof BlueskyError && err.error === "RecordNotFound") {
-        return;
+      const isInvalidSwap =
+        err instanceof BlueskyError && err.error === "InvalidSwap";
+      if (!isInvalidSwap || attempt === MAX_SWAP_RETRIES - 1) {
+        throw err;
       }
-      throw err;
     }
+  }
+}
+
+export async function clearLiveStatus(session: BskySessionLike): Promise<void> {
+  try {
+    await xrpc(session, "/xrpc/com.atproto.repo.deleteRecord", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        repo: session.did,
+        collection: STATUS_COLLECTION,
+        rkey: STATUS_RKEY,
+      }),
+    });
+  } catch (err) {
+    if (err instanceof BlueskyError && err.error === "RecordNotFound") {
+      return;
+    }
+    throw err;
+  }
+}
+
+export async function statusRecordExists(
+  session: BskySessionLike,
+): Promise<boolean> {
+  return (await getStatusRecordCid(session)) !== null;
+}
+
+export async function createStreamPost(
+  session: BskySessionLike,
+  input: { uri: string; title?: string; description?: string },
+): Promise<void> {
+  await xrpc(session, "/xrpc/com.atproto.repo.createRecord", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      repo: session.did,
+      collection: "app.bsky.feed.post",
+      record: {
+        $type: "app.bsky.feed.post",
+        text: `配信開始しました${input.title ? `: ${input.title}` : ""}`,
+        createdAt: new Date().toISOString(),
+        langs: ["ja"],
+        embed: {
+          $type: "app.bsky.embed.external",
+          external: {
+            $type: "app.bsky.embed.external#external",
+            uri: input.uri,
+            title: input.title ?? "",
+            description: input.description ?? "",
+          },
+        },
+      },
+    }),
   });
 }
 
-async function withSessionRefresh<T>(
+/**
+ * Twitch ユーザーの Bluesky セッションを復元する。
+ * 未連携なら null。
+ */
+export async function getSessionForUser(
   env: AppEnv,
-  fn: (session: SessionCache) => Promise<T>,
-): Promise<T> {
-  const session = await getSession(env);
+  userId: string,
+): Promise<BskySessionLike | null> {
+  const did = await getBskyDidForUser(env, userId);
+  if (!did) return null;
   try {
-    return await fn(session);
-  } catch (err) {
-    if (!(err instanceof BlueskyError) || err.status !== 401) {
-      throw err;
-    }
-    // JWT失効時はセッションを破棄して再作成し、1回だけリトライ
-    await env.STATE.delete(SESSION_CACHE_KEY);
-    const freshSession = await getSession(env);
-    return fn(freshSession);
+    const { getOAuthClient } = await import("./bsky-oauth");
+    const session = await getOAuthClient(env).restore(did);
+    return {
+      did: session.did,
+      fetchHandler: (pathname, init) => session.fetchHandler(pathname, init),
+    };
+  } catch {
+    return null;
   }
 }

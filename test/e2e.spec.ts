@@ -14,6 +14,18 @@ import { WEBHOOK_SECRET_KEY } from "../src/lib/eventsub";
 import type { StreamEvent } from "../src/lib/stream";
 import { migrations } from "./migrations";
 
+const blueskyModule = await import("../src/lib/bluesky");
+vi.mock("../src/lib/bluesky", () => ({
+  setLiveStatus: vi.fn(async () => {}),
+  clearLiveStatus: vi.fn(async () => {}),
+  createStreamPost: vi.fn(async () => {}),
+  statusRecordExists: vi.fn(async () => false),
+  getSessionForUser: vi.fn(async () => ({
+    did: "did:plc:e2e",
+    fetchHandler: async () => new Response(),
+  })),
+}));
+
 function makeEnv(sendMock?: ReturnType<typeof vi.fn>): AppEnv {
   return {
     ...env,
@@ -61,12 +73,6 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 const SECRET = "e2e-webhook-secret";
-const sessionResponse = {
-  accessJwt: "e2e-jwt",
-  did: "did:plc:e2e",
-  handle: "test.bsky.social",
-};
-
 const MESSAGE_ID = "msg-1";
 const freshTimestamp = () => new Date().toISOString();
 
@@ -177,6 +183,16 @@ beforeEach(async () => {
     `INSERT INTO connections (user_id, twitch_channel_id, twitch_login, twitch_display_name)
      VALUES ('user-1', '12345', 'azumag', 'あずまぐ')`,
   ).run();
+  vi.mocked(blueskyModule.setLiveStatus).mockReset();
+  vi.mocked(blueskyModule.clearLiveStatus).mockReset();
+  vi.mocked(blueskyModule.createStreamPost).mockReset();
+  vi.mocked(blueskyModule.statusRecordExists).mockReset();
+  vi.mocked(blueskyModule.getSessionForUser).mockReset();
+  vi.mocked(blueskyModule.getSessionForUser).mockResolvedValue({
+    did: "did:plc:e2e",
+    fetchHandler: async () => new Response(),
+  } as never);
+  vi.mocked(blueskyModule.statusRecordExists).mockResolvedValue(false);
   vi.stubGlobal("fetch", undefined);
 });
 
@@ -186,8 +202,6 @@ afterEach(() => {
 
 describe("E2E: Twitch EventSub → Bluesky streaming status", () => {
   it("sets the live status on stream.online and clears it on stream.offline", async () => {
-    const putRecordBodies: Record<string, unknown>[] = [];
-    const deleteRecordBodies: Record<string, unknown>[] = [];
     let streamPollCalls = 0;
 
     mockFetch({
@@ -210,20 +224,6 @@ describe("E2E: Twitch EventSub → Bluesky streaming status", () => {
             })
           : jsonResponse({ data: [] });
       },
-      "com.atproto.server.createSession": async () => jsonResponse(sessionResponse),
-      "com.atproto.repo.getRecord": async () =>
-        jsonResponse(
-          { error: "RecordNotFound", message: "Could not locate record" },
-          400,
-        ),
-      "com.atproto.repo.putRecord": async (_url, init) => {
-        putRecordBodies.push(JSON.parse(String(init?.body)));
-        return jsonResponse({ uri: "at://did:plc:e2e/app.bsky.actor.status/self", cid: "cid-1" });
-      },
-      "com.atproto.repo.deleteRecord": async (_url, init) => {
-        deleteRecordBodies.push(JSON.parse(String(init?.body)));
-        return jsonResponse({ commit: { cid: "cid-2", rev: "1" } });
-      },
     });
 
     // stream.online → キュー投入 → consumer 処理 → Bluesky に設定
@@ -233,20 +233,11 @@ describe("E2E: Twitch EventSub → Bluesky streaming status", () => {
     expect(online.res.status).toBe(202);
     await drainQueue(sendMock, env0);
 
-    expect(putRecordBodies).toHaveLength(1);
-    const put = putRecordBodies[0] as {
-      collection: string;
-      rkey: string;
-      record: {
-        status: string;
-        embed: { external: { uri: string; title: string } };
-      };
-    };
-    expect(put.collection).toBe("app.bsky.actor.status");
-    expect(put.rkey).toBe("self");
-    expect(put.record.embed.external.uri).toBe("https://www.twitch.tv/azumag");
-    expect(put.record.embed.external.title).toBe("E2Eテスト配信");
-    expect(put.record.status).toBe("app.bsky.actor.status#live");
+    expect(blueskyModule.setLiveStatus).toHaveBeenCalledTimes(1);
+    expect(blueskyModule.setLiveStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      { uri: "https://www.twitch.tv/azumag", title: "E2Eテスト配信" },
+    );
 
     const state = (await env.STATE.get("stream:state:12345", "json")) as {
       is_live: boolean;
@@ -260,9 +251,7 @@ describe("E2E: Twitch EventSub → Bluesky streaming status", () => {
     expect(offline.res.status).toBe(202);
     await drainQueue(sendMock, env0);
 
-    expect(deleteRecordBodies).toHaveLength(1);
-    expect(deleteRecordBodies[0].collection).toBe("app.bsky.actor.status");
-    expect(deleteRecordBodies[0].rkey).toBe("self");
+    expect(blueskyModule.clearLiveStatus).toHaveBeenCalledTimes(1);
 
     const after = (await env.STATE.get("stream:state:12345", "json")) as {
       is_live: boolean;
@@ -271,22 +260,11 @@ describe("E2E: Twitch EventSub → Bluesky streaming status", () => {
   });
 
   it("does not double-apply on duplicate online deliveries", async () => {
-    let putRecordCalls = 0;
     mockFetch({
       "id.twitch.tv/oauth2/token": async () =>
         jsonResponse({ access_token: "twitch-token", expires_in: 5000000, token_type: "bearer" }),
       "api.twitch.tv/helix/streams?user_id=12345": async () =>
         jsonResponse({ data: [] }),
-      "com.atproto.server.createSession": async () => jsonResponse(sessionResponse),
-      "com.atproto.repo.getRecord": async () =>
-        jsonResponse(
-          { error: "RecordNotFound", message: "Could not locate record" },
-          400,
-        ),
-      "com.atproto.repo.putRecord": async () => {
-        putRecordCalls++;
-        return jsonResponse({ uri: "at://...", cid: "cid-1" });
-      },
     });
 
     const sendMock = vi.fn(async () => {});
@@ -295,27 +273,15 @@ describe("E2E: Twitch EventSub → Bluesky streaming status", () => {
     await sendEvent(onlinePayload, sendMock); // 同じ stream id の再送
     await drainQueue(sendMock, env0);
 
-    expect(putRecordCalls).toBe(1);
+    expect(blueskyModule.setLiveStatus).toHaveBeenCalledTimes(1);
   });
 
   it("self-heals via cron when the stream ended but KV still says live", async () => {
-    const deleteRecordBodies: Record<string, unknown>[] = [];
     mockFetch({
       "id.twitch.tv/oauth2/token": async () =>
         jsonResponse({ access_token: "twitch-token", expires_in: 5000000, token_type: "bearer" }),
       "api.twitch.tv/helix/streams?user_id=12345": async () =>
         jsonResponse({ data: [] }),
-      "com.atproto.server.createSession": async () => jsonResponse(sessionResponse),
-      "com.atproto.repo.getRecord": async () =>
-        jsonResponse({
-          uri: "at://did:plc:e2e/app.bsky.actor.status/self",
-          cid: "cid-1",
-          value: {},
-        }),
-      "com.atproto.repo.deleteRecord": async (_url, init) => {
-        deleteRecordBodies.push(JSON.parse(String(init?.body)));
-        return jsonResponse({ commit: { cid: "cid-2", rev: "1" } });
-      },
     });
 
     // offline イベントを取りこぼした状態を再現: KV は live、実態は配信終了
@@ -345,8 +311,7 @@ describe("E2E: Twitch EventSub → Bluesky streaming status", () => {
     await worker.scheduled?.(controller, makeEnv(), ctx);
     await waitOnExecutionContext(ctx);
 
-    expect(deleteRecordBodies).toHaveLength(1);
-    expect(deleteRecordBodies[0].rkey).toBe("self");
+    expect(blueskyModule.clearLiveStatus).toHaveBeenCalledTimes(1);
     const state = (await env.STATE.get("stream:state:12345", "json")) as {
       is_live: boolean;
     };

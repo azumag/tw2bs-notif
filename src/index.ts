@@ -27,7 +27,7 @@ import {
   insertConnection,
   listConnections,
 } from "./lib/connections";
-import { clearLiveStatus } from "./lib/bluesky";
+import { clearLiveStatus, getSessionForUser } from "./lib/bluesky";
 import {
   activateCode,
   deactivateEntitlements,
@@ -40,6 +40,14 @@ import {
   refreshTwitchSubCheck,
   setTwitchSubCheckDisabled,
 } from "./lib/sub-check";
+import {
+  BSKY_CLIENT_METADATA,
+  bindBskySessionToUser,
+  completeBskyAuthorization,
+  createBskyAuthorizeUrl,
+  disconnectBsky,
+  getBskyDidForUser,
+} from "./lib/bsky-oauth";
 import { logError, logInfo } from "./lib/logger";
 
 const LOGIN_PATH = "/auth/twitch/login";
@@ -54,6 +62,11 @@ const SUPPORT_DEACTIVATE_PATH = "/support/deactivate";
 const SUB_CHECK_PATH = "/support/check-subscription";
 const SUB_DISABLE_PATH = "/support/disable-subscription";
 const SUB_ENABLE_PATH = "/support/enable-subscription";
+const BSKY_LOGIN_PATH = "/auth/bluesky/login";
+const BSKY_CALLBACK_PATH = "/auth/bluesky/callback";
+const BSKY_DISCONNECT_PATH = "/auth/bluesky/disconnect";
+const BSKY_METADATA_PATH = "/oauth-client-metadata.json";
+const SETTINGS_PATH = "/settings";
 const WEBHOOK_SECRET_KEY = "twitch:webhook_secret";
 
 function htmlPage(title: string, body: string): Response {
@@ -85,6 +98,7 @@ function renderIndex(
     `<h1>orbsky</h1><p>ログイン中: ${escapeHtml(session.twitchUserId)}</p>
      <p><a href="${CHANNELS_PATH}">チャンネル連携の管理</a></p>
      <p><a href="${SUPPORT_PATH}">特典(サポートコード)</a></p>
+     <p><a href="${SETTINGS_PATH}">Bluesky連携の設定</a></p>
      <form method="post" action="${LOGOUT_PATH}">
        <input type="hidden" name="csrf" value="${session.csrf}">
        <button type="submit">ログアウト</button>
@@ -275,9 +289,12 @@ async function handleDisconnectChannel(
         },
       );
       // 配信中なら Bluesky ステータスを解除する(stale record の掃除は cron の自己修復も行う)
-      await clearLiveStatus(env).catch((err) => {
-        logError("channels", "clearLiveStatus failed", err);
-      });
+      const sessionForBsky = await getSessionForUser(env, session.twitchUserId);
+      if (sessionForBsky) {
+        await clearLiveStatus(sessionForBsky).catch((err) => {
+          logError("channels", "clearLiveStatus failed", err);
+        });
+      }
       logInfo("channels", "disconnected channel", { connectionId });
     }
     return new Response(null, { status: 302, headers: { Location: CHANNELS_PATH } });
@@ -478,6 +495,99 @@ async function handleSubEnable(
   return new Response(null, { status: 302, headers: { Location: SUPPORT_PATH } });
 }
 
+async function handleBskyLogin(
+  request: Request,
+  env: AppEnv,
+): Promise<Response> {
+  const session = await getSession(env, request);
+  if (!session) {
+    return new Response(null, { status: 302, headers: { Location: "/" } });
+  }
+  const url = new URL(request.url);
+  const handle = (url.searchParams.get("handle") ?? "").trim();
+  if (!/^[a-zA-Z0-9.-]+\.[a-zA-Z0-9-]+$/.test(handle)) {
+    return htmlPage("エラー", "<p>Blueskyのハンドルを正しく入力してください。</p>");
+  }
+  try {
+    const authUrl = await createBskyAuthorizeUrl(env, handle);
+    logInfo("bsky", "oauth started", { userId: session.twitchUserId, handle });
+    return new Response(null, { status: 302, headers: { Location: authUrl.toString() } });
+  } catch (err) {
+    logError("bsky", "authorize failed", err, { userId: session.twitchUserId });
+    return htmlPage(
+      "エラー",
+      "<p>認可の開始に失敗しました。ハンドルが正しいか確認してください。</p>",
+    );
+  }
+}
+
+async function handleBskyCallback(
+  request: Request,
+  env: AppEnv,
+): Promise<Response> {
+  const session = await getSession(env, request);
+  if (!session) {
+    return htmlPage("エラー", "<p>ログインが必要です。</p>");
+  }
+  try {
+    const { did } = await completeBskyAuthorization(env, new URL(request.url).searchParams);
+    await bindBskySessionToUser(env, session.twitchUserId, did);
+    logInfo("bsky", "oauth completed", { userId: session.twitchUserId, did });
+    return new Response(null, { status: 302, headers: { Location: SETTINGS_PATH } });
+  } catch (err) {
+    logError("bsky", "oauth callback failed", err, { userId: session.twitchUserId });
+    return htmlPage(
+      "エラー",
+      "<p>Bluesky連携に失敗しました。もう一度お試しください。</p>",
+    );
+  }
+}
+
+async function handleBskyDisconnect(
+  request: Request,
+  env: AppEnv,
+): Promise<Response> {
+  const session = await getSession(env, request);
+  const form = await request.formData().catch(() => null);
+  const csrf = typeof form?.get("csrf") === "string" ? form.get("csrf") : null;
+  if (!session || csrf !== session.csrf) {
+    return htmlPage("エラー", "<p>無効なリクエストです。</p>");
+  }
+  await disconnectBsky(env, session.twitchUserId);
+  logInfo("bsky", "disconnected", { userId: session.twitchUserId });
+  return new Response(null, { status: 302, headers: { Location: SETTINGS_PATH } });
+}
+
+async function handleSettings(
+  request: Request,
+  env: AppEnv,
+): Promise<Response> {
+  const session = await getSession(env, request);
+  if (!session) {
+    return new Response(null, { status: 302, headers: { Location: "/" } });
+  }
+  const did = await getBskyDidForUser(env, session.twitchUserId);
+  const body = did
+    ? `<h2>Bluesky連携</h2>
+       <p>連携中: ${escapeHtml(did)}</p>
+       <form method="post" action="${BSKY_DISCONNECT_PATH}">
+         <input type="hidden" name="csrf" value="${session.csrf}">
+         <button type="submit">連携を解除</button>
+       </form>`
+    : `<h2>Bluesky連携</h2>
+       <p>未連携です。配信ステータスを反映するには Bluesky アカウントと連携してください。</p>
+       <form method="get" action="${BSKY_LOGIN_PATH}">
+         <input type="text" name="handle" required placeholder="あなたのハンドル (例: hoge.bsky.social)">
+         <button type="submit">Blueskyと連携</button>
+       </form>`;
+  return htmlPage(
+    "orbsky - 設定",
+    `<h1>設定</h1>
+     <p><a href="/">← 戻る</a></p>
+     ${body}`,
+  );
+}
+
 export default {
   async fetch(
     request: Request,
@@ -524,6 +634,25 @@ export default {
     }
     if (url.pathname === SUB_ENABLE_PATH && request.method === "POST") {
       return handleSubEnable(request, env);
+    }
+    if (url.pathname === BSKY_METADATA_PATH && request.method === "GET") {
+      // Bluesky OAuth クライアントメタデータ(認可サーバーが参照する)
+      return new Response(JSON.stringify(BSKY_CLIENT_METADATA), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    if (url.pathname === BSKY_LOGIN_PATH && request.method === "GET") {
+      return handleBskyLogin(request, env);
+    }
+    if (url.pathname === BSKY_CALLBACK_PATH && request.method === "GET") {
+      return handleBskyCallback(request, env);
+    }
+    if (url.pathname === BSKY_DISCONNECT_PATH && request.method === "POST") {
+      return handleBskyDisconnect(request, env);
+    }
+    if (url.pathname === SETTINGS_PATH && request.method === "GET") {
+      return handleSettings(request, env);
     }
     if (url.pathname === "/" && request.method === "GET") {
       const session = await getSession(env, request);

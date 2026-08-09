@@ -19,6 +19,10 @@ vi.mock("../src/lib/bluesky", () => ({
   clearLiveStatus: vi.fn(async () => {}),
   createStreamPost: vi.fn(async () => {}),
   statusRecordExists: vi.fn(async () => false),
+  getSessionForUser: vi.fn(async () => ({
+    did: "did:plc:test",
+    fetchHandler: async () => new Response(),
+  })),
 }));
 vi.mock("../src/lib/twitch", () => ({
   getStreamStatesBatch: vi.fn(async () => new Map()),
@@ -86,6 +90,11 @@ beforeEach(async () => {
   vi.mocked(blueskyModule.clearLiveStatus).mockReset();
   vi.mocked(blueskyModule.createStreamPost).mockReset();
   vi.mocked(blueskyModule.statusRecordExists).mockReset();
+  vi.mocked(blueskyModule.getSessionForUser).mockReset();
+  vi.mocked(blueskyModule.getSessionForUser).mockResolvedValue({
+    did: "did:plc:test",
+    fetchHandler: async () => new Response(),
+  } as never);
   vi.mocked(blueskyModule.statusRecordExists).mockResolvedValue(false);
   vi.mocked(twitchModule.getStreamStatesBatch).mockReset();
   vi.mocked(twitchModule.getStreamStatesBatch).mockResolvedValue(
@@ -205,6 +214,19 @@ describe("processStreamEvent", () => {
       stream_id?: string;
     };
     expect(state.stream_id).toBe("stream-1");
+  });
+
+  it("skips Bluesky writes when the user has no bsky session", async () => {
+    vi.mocked(blueskyModule.getSessionForUser).mockResolvedValue(null);
+
+    await processStreamEvent(makeEnv(), onlineEvent);
+
+    expect(blueskyModule.setLiveStatus).not.toHaveBeenCalled();
+    // KV 状態は更新される
+    const state = (await env.STATE.get(stateKey, "json")) as {
+      is_live: boolean;
+    };
+    expect(state.is_live).toBe(true);
   });
 
   it("clears the live status on stream.offline when live", async () => {
