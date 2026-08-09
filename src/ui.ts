@@ -1144,6 +1144,8 @@ tr:last-child td { border-bottom: 0; }
   .next-action, .support-code-form { align-items: stretch; flex-direction: column; }
   .next-action .button, .support-code-form button { width: 100%; }
   .dashboard-footer { align-items: flex-start; flex-direction: column; }
+  .hero-actions { flex-direction: column; align-items: stretch; }
+  .hero-actions > * { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
