@@ -183,7 +183,7 @@ describe("チャンネル連携ページ", () => {
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain("チャンネル連携");
-    expect(body).toContain("連携しているチャンネルはまだありません");
+    expect(body).toContain("自分のチャンネルを連携する");
     expect(body).toContain("/channels/connect");
     expect(body).toContain("マルチチャンネル設定");
     expect(body).toContain("特典を有効化する");

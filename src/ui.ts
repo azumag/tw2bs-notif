@@ -584,15 +584,6 @@ pre code { padding: 0; background: transparent; }
 .channel-tab strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .channel-tab small { color: var(--muted); font-weight: 500; }
 
-.empty-state {
-  border: 1px dashed var(--border-strong);
-  border-radius: 14px;
-  background: var(--surface-soft);
-  color: var(--muted-strong);
-  padding: 2rem;
-  text-align: center;
-}
-
 .channel-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.8fr);

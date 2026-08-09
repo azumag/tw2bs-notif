@@ -617,6 +617,38 @@ async function handleChannels(
        </form>`
     : `<p>サポートコードまたはTwitchサブスク特典を有効化すると、管理している複数のチャンネルを追加できます。</p>
        <p><a class="button button-secondary" href="${SUPPORT_PATH}">特典を有効化する</a></p>`;
+  const header = `<div class="channel-page-header">
+       <div>
+         <span class="eyebrow">チャンネル連携</span>
+         <h1>投稿設定</h1>
+         <p>配信開始時にBlueskyへ投稿する内容を設定します。</p>
+       </div>
+       <div class="connection-summary" aria-label="連携状態">
+         <span class="compact-status ${bskyDid ? "is-success" : ""}">Bluesky ${bskyDid ? "連携済み" : "未連携"}</span>
+         <span>${connections.length}チャンネル</span>
+         ${canUseMultiChannel ? "<span>マルチチャンネル利用可</span>" : ""}
+       </div>
+     </div>
+     ${postingSaved ? '<div class="notice" role="status">チャンネルの自動ポスト設定を保存しました。</div>' : ""}`;
+
+  // 未連携時は「まず連携する」ことだけに集中させた1本のCTAを主役にする。
+  // マルチチャンネル追加などのカスタマイズは、連携の有無にかかわらず
+  // 下の折りたたみ(management-disclosure)からたどれるようにしておく。
+  const startCard = connections.length
+    ? ""
+    : `<section class="focus-card">
+         <div class="connection-state">
+           <div><span>チャンネル連携</span><strong>未連携</strong></div>
+           <span class="compact-status">連携が必要</span>
+         </div>
+         <p>ログイン中のTwitchアカウントのチャンネルを連携すると、配信開始・終了をBlueskyへ自動で反映できるようになります。</p>
+         <form method="post" action="${CHANNELS_CONNECT_PATH}">
+           <input type="hidden" name="csrf" value="${session.csrf}">
+           <button type="submit">自分のチャンネルを連携する</button>
+         </form>
+         <p><small>連携後は、この画面から投稿内容のカスタマイズや複数チャンネルの追加もできます。</small></p>
+       </section>`;
+
   const editor = connections.length
     ? `${connections.length > 1 ? `<span class="section-label">編集するチャンネル</span>
        <div class="channel-tabs" role="tablist" aria-label="連携済みチャンネル">${tabs}</div>` : ""}
@@ -635,27 +667,13 @@ async function handleChannels(
            <div class="preview-state" data-preview-state>配信開始時に投稿されます</div>
          </aside>
        </div>`
-    : `<div class="empty-state">
-         <p>連携しているチャンネルはまだありません。</p>
-         <p class="help-text">下の「チャンネル連携」から、自分のチャンネルを連携してください。</p>
-       </div>`;
+    : "";
   return htmlPage(
     "orbsky - 投稿設定",
-    `<div class="channel-page-header">
-       <div>
-         <span class="eyebrow">チャンネル連携</span>
-         <h1>投稿設定</h1>
-         <p>配信開始時にBlueskyへ投稿する内容を設定します。</p>
-       </div>
-       <div class="connection-summary" aria-label="連携状態">
-         <span class="compact-status ${bskyDid ? "is-success" : ""}">Bluesky ${bskyDid ? "連携済み" : "未連携"}</span>
-         <span>${connections.length}チャンネル</span>
-         ${canUseMultiChannel ? "<span>マルチチャンネル利用可</span>" : ""}
-       </div>
-     </div>
-     ${postingSaved ? '<div class="notice" role="status">チャンネルの自動ポスト設定を保存しました。</div>' : ""}
+    `${header}
+     ${startCard}
      ${editor}
-     <details class="management-disclosure"${connections.length ? "" : " open"}>
+     <details class="management-disclosure">
        <summary>
          <span><strong>チャンネル連携</strong><small>チャンネルの追加と連携管理</small></span>
        </summary>
