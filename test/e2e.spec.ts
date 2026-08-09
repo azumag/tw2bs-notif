@@ -11,7 +11,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import worker from "../src/index";
 import type { AppEnv } from "../src/types";
 import { WEBHOOK_SECRET_KEY } from "../src/lib/eventsub";
-import type { StreamEvent } from "../src/lib/stream";
+import type { QueueMessage } from "../src/lib/stream";
 import { migrations } from "./migrations";
 
 const blueskyModule = await import("../src/lib/bluesky");
@@ -126,7 +126,9 @@ async function drainQueue(
   sendMock: ReturnType<typeof vi.fn>,
   env0: AppEnv,
 ): Promise<void> {
-  const events: StreamEvent[] = sendMock.mock.calls.map((c) => c[0] as StreamEvent);
+  const events: QueueMessage[] = sendMock.mock.calls.map(
+    (c) => c[0] as QueueMessage,
+  );
   if (events.length === 0) return;
   sendMock.mockClear();
   const messages = events.map((body) => ({
@@ -135,7 +137,7 @@ async function drainQueue(
     timestamp: new Date(),
     attempts: 1,
   }));
-  const batch = createMessageBatch<StreamEvent>("eventsub-events", messages);
+  const batch = createMessageBatch<QueueMessage>("eventsub-events", messages);
   const ctx = createExecutionContext();
   await worker.queue?.(batch, env0);
   await waitOnExecutionContext(ctx);
@@ -174,10 +176,10 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await env.STATE.put(WEBHOOK_SECRET_KEY, SECRET);
-  await env.STATE.delete("stream:state:12345");
   await env.STATE.delete("twitch:token");
   await env.STATE.delete("bsky:session");
   // チャネル 12345 の連携を用意
+  await env.DB.prepare("DELETE FROM live_streams").run();
   await env.DB.prepare("DELETE FROM connections").run();
   await env.DB.prepare(
     `INSERT INTO connections (user_id, twitch_channel_id, twitch_login, twitch_display_name)
@@ -248,12 +250,10 @@ describe("E2E: Twitch EventSub → Bluesky streaming status", () => {
       },
     );
 
-    const state = (await env.STATE.get("stream:state:12345", "json")) as {
-      is_live: boolean;
-      stream_id?: string;
-    };
-    expect(state.is_live).toBe(true);
-    expect(state.stream_id).toBe("stream-100");
+    const live = await env.DB.prepare(
+      "SELECT stream_id AS streamId FROM live_streams WHERE twitch_channel_id = '12345'",
+    ).first<{ streamId: string }>();
+    expect(live?.streamId).toBe("stream-100");
 
     // stream.offline → キュー投入 → consumer 処理 → ステータス削除
     const offline = await sendEvent(offlinePayload, sendMock);
@@ -262,10 +262,10 @@ describe("E2E: Twitch EventSub → Bluesky streaming status", () => {
 
     expect(blueskyModule.clearLiveStatus).toHaveBeenCalledTimes(1);
 
-    const after = (await env.STATE.get("stream:state:12345", "json")) as {
-      is_live: boolean;
-    };
-    expect(after.is_live).toBe(false);
+    const after = await env.DB.prepare(
+      "SELECT stream_id FROM live_streams WHERE twitch_channel_id = '12345'",
+    ).first();
+    expect(after).toBeNull();
   });
 
   it("does not double-apply on duplicate online deliveries", async () => {
@@ -285,45 +285,93 @@ describe("E2E: Twitch EventSub → Bluesky streaming status", () => {
     expect(blueskyModule.setLiveStatus).toHaveBeenCalledTimes(1);
   });
 
-  it("self-heals via cron when the stream ended but KV still says live", async () => {
+  it("4時間の失効前に、キューの遅延メッセージでバッジを延長する", async () => {
+    mockFetch({
+      "id.twitch.tv/oauth2/token": async () =>
+        jsonResponse({ access_token: "twitch-token", expires_in: 5000000, token_type: "bearer" }),
+      "api.twitch.tv/helix/streams?user_id=12345": async () =>
+        jsonResponse({
+          data: [
+            {
+              id: "stream-100",
+              user_id: "12345",
+              user_login: "azumag",
+              started_at: "2026-08-07T00:00:00Z",
+              title: "E2Eテスト配信",
+              game_name: "Music",
+            },
+          ],
+        }),
+    });
+
+    const sendMock = vi.fn(async () => {});
+    const env0 = makeEnv(sendMock);
+
+    // 配信開始 → バッジ設定 + 延長メッセージの予約
+    await sendEvent(onlinePayload, sendMock);
+    await drainQueue(sendMock, env0);
+    expect(blueskyModule.setLiveStatus).toHaveBeenCalledTimes(1);
+
+    const sentCalls = () =>
+      sendMock.mock.calls as unknown as Array<
+        [unknown, { delaySeconds?: number } | undefined]
+      >;
+    const renewal = sentCalls().at(-1);
+    expect(renewal?.[0]).toEqual({
+      type: "stream.renew",
+      broadcasterUserId: "12345",
+      streamId: "stream-100",
+    });
+    // 失効(4時間)より前に戻ってくる
+    const delaySeconds = renewal?.[1]?.delaySeconds;
+    expect(delaySeconds).toBeGreaterThanOrEqual(3 * 60 * 60);
+    expect(delaySeconds).toBeLessThan(4 * 60 * 60);
+
+    // 遅延メッセージが届いた: バッジを書き直し、次の延長をまた予約する
+    const postsBefore = vi.mocked(blueskyModule.createStreamPost).mock.calls.length;
+    await drainQueue(sendMock, env0);
+    expect(blueskyModule.setLiveStatus).toHaveBeenCalledTimes(2);
+    // 延長では通常ポストを作らない
+    expect(blueskyModule.createStreamPost).toHaveBeenCalledTimes(postsBefore);
+    expect(sentCalls().at(-1)?.[0]).toMatchObject({
+      type: "stream.renew",
+      streamId: "stream-100",
+    });
+  });
+
+  it("延長時に配信が終わっていたら、バッジは消さず自然失効に任せる", async () => {
     mockFetch({
       "id.twitch.tv/oauth2/token": async () =>
         jsonResponse({ access_token: "twitch-token", expires_in: 5000000, token_type: "bearer" }),
       "api.twitch.tv/helix/streams?user_id=12345": async () =>
         jsonResponse({ data: [] }),
     });
+    await env.DB.prepare(
+      `INSERT INTO live_streams (twitch_channel_id, stream_id) VALUES ('12345', 'stream-100')`,
+    ).run();
 
-    // offline イベントを取りこぼした状態を再現: KV は live、実態は配信終了
-    await env.STATE.put(
-      "stream:state:12345",
-      JSON.stringify({
-        is_live: true,
-        stream_id: "stream-100",
-        started_at: "2026-08-07T00:00:00Z",
-        updated_at: new Date().toISOString(),
-      }),
-    );
+    const sendMock = vi.fn(async () => {});
+    const env0 = makeEnv(sendMock);
+    const batch = createMessageBatch<QueueMessage>("eventsub-events", [
+      {
+        body: {
+          type: "stream.renew",
+          broadcasterUserId: "12345",
+          streamId: "stream-100",
+        },
+        id: crypto.randomUUID(),
+        timestamp: new Date(),
+        attempts: 1,
+      },
+    ]);
+    await worker.queue?.(batch, env0);
 
-    const ctx = createExecutionContext();
-    const res = await worker.fetch(
-      new Request("https://example.com/"),
-      makeEnv(),
-      ctx,
-    );
-    expect(res.status).toBe(200); // fetch ハンドラは cron でないのでダミー
-
-    // scheduled ハンドラを直接呼ぶ(実デプロイでは cron が 30分毎に実行)
-    const controller = createScheduledController({
-      cron: "0,30 * * * *",
-      scheduledTime: new Date(),
-    });
-    await worker.scheduled?.(controller, makeEnv(), ctx);
-    await waitOnExecutionContext(ctx);
-
-    expect(blueskyModule.clearLiveStatus).toHaveBeenCalledTimes(1);
-    const state = (await env.STATE.get("stream:state:12345", "json")) as {
-      is_live: boolean;
-    };
-    expect(state.is_live).toBe(false);
+    expect(blueskyModule.setLiveStatus).not.toHaveBeenCalled();
+    expect(blueskyModule.clearLiveStatus).not.toHaveBeenCalled();
+    expect(sendMock).not.toHaveBeenCalled();
+    const row = await env.DB.prepare(
+      "SELECT stream_id FROM live_streams WHERE twitch_channel_id = '12345'",
+    ).first();
+    expect(row).toBeNull();
   });
 });

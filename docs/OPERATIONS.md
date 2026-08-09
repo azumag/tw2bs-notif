@@ -10,10 +10,14 @@ Twitch EventSub (stream.online/offline)
   → Workers Queue (eventsub-events)
   → Queue consumer → processStreamEvent(connections ベース)
   → Bluesky (status record / 投稿)
-cron (30分毎) → refreshStreamStatus(全連携チャネルをバッチポーリング、自己修復)
+  → 同じ Queue へ「バッジ延長」を遅延投入(約3〜3.5時間後)
+  → Queue consumer → processStreamRenewals(配信中のチャネルだけ生存確認して再書き込み)
 ```
 
-- ストレージ: KV(STATE: セッション/状態/webhook secret)、D1(tw2bs-notif-db: users/connections/support_codes/user_licenses)
+定期実行(cron)は持たない。処理量は**同時配信数**に比例し、登録ユーザー数には比例しない。
+
+- ストレージ: KV(STATE: セッション/OAuth state/Twitchトークンキャッシュ/webhook secret ※いずれもTTL付きの揮発データ)、D1(tw2bs-notif-db: users/connections/support_codes/user_licenses/live_streams)
+- 配信中の状態は D1 の `live_streams`。KV は結果整合のため online 直後の offline を取りこぼす余地があり、強整合な D1 に置いている
 - 認証: Twitch OAuth ログイン(user:read:email + user:read:subscriptions)、セッションは HttpOnly Cookie + CSRF
 - Bluesky 連携: 現状サービス共通の資格情報(BSKY_HANDLE / BSKY_APP_PASSWORD)。ユーザー別 Bluesky OAuth は将来対応(PoC 済み: docs/bluesky-oauth-poc.md)
 
@@ -90,4 +94,7 @@ npx wrangler d1 migrations apply tw2bs-notif-db --remote
   2. チャネルが connections に登録されているか(DB: `SELECT * FROM connections`)
   3. `wrangler tail` で `ignored unknown channel` が出ていないか
 - EventSub 購読は連携フロー(/channels)で自動作成・削除される。手動購読は不要
-- 4時間超の配信: cron(30分毎)が record を再書き込みしてバッジを維持
+- 4時間超の配信: 配信開始時にキューへ延長メッセージを遅延投入し(3時間 + 0〜30分のゆらぎ)、届いたら Helix で生存確認して record を再書き込みする。以後これを繰り返す
+  - ゆらぎは、同時に配信を始めた分の延長が同時に戻ってくるのを防ぐため
+  - 生存確認はバッチ内でまとめて1リクエスト(Helix は100チャネル/リクエスト)
+  - 延長時に配信が見つからなくてもバッジは消さない。消すのは stream.offline の役割で、取りこぼしても4時間で自然失効する

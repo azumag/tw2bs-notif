@@ -7,7 +7,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import type { AppEnv } from "../src/types";
 import {
   processStreamEvent,
-  refreshStreamStatus,
+  processStreamRenewals,
   type StreamEvent,
 } from "../src/lib/stream";
 import { migrations } from "./migrations";
@@ -29,9 +29,17 @@ vi.mock("../src/lib/twitch", () => ({
   getChannelInformation: vi.fn(async () => null),
 }));
 
+// 遅延投入された延長メッセージを捕まえる
+let queued: Array<{ body: unknown; options?: { delaySeconds?: number } }> = [];
+
 function makeEnv(): AppEnv {
   const e = {
     ...env,
+    EVENTS: {
+      send: vi.fn(async (body: unknown, options?: { delaySeconds?: number }) => {
+        queued.push({ body, options });
+      }),
+    },
     TWITCH_CLIENT_ID: "test-client-id",
     TWITCH_CLIENT_SECRET: "test-client-secret",
     TWITCH_BROADCASTER_ID: "12345",
@@ -41,7 +49,7 @@ function makeEnv(): AppEnv {
       "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
     TWITCH_OAUTH_REDIRECT_URL: env.TWITCH_OAUTH_REDIRECT_URL,
     EVENTSUB_CALLBACK_URL: env.EVENTSUB_CALLBACK_URL,
-  } as AppEnv;
+  } as unknown as AppEnv;
   // wrangler.jsonc の vars がテスト env に注入されるため、既定は無効にする
   delete (e as unknown as Record<string, unknown>).BSKY_POST_ON_START;
   return e;
@@ -53,7 +61,22 @@ function mockStreamStates(streams: Map<string, unknown>) {
   );
 }
 
-const stateKey = "stream:state:12345";
+// 配信中の記録(D1)を用意する
+async function markLive(streamId = "stream-1") {
+  await env.DB.prepare(
+    `INSERT INTO live_streams (twitch_channel_id, stream_id, started_at)
+     VALUES ('12345', ?, '2026-08-07T00:00:00Z')
+     ON CONFLICT (twitch_channel_id) DO UPDATE SET stream_id = excluded.stream_id`,
+  )
+    .bind(streamId)
+    .run();
+}
+
+async function liveRecord(): Promise<{ streamId: string } | null> {
+  return env.DB.prepare(
+    "SELECT stream_id AS streamId FROM live_streams WHERE twitch_channel_id = '12345'",
+  ).first<{ streamId: string }>();
+}
 
 const onlineEvent: StreamEvent = {
   id: "stream-1",
@@ -81,6 +104,8 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  queued = [];
+  await env.DB.prepare("DELETE FROM live_streams").run();
   await env.DB.prepare("DELETE FROM connections").run();
   await env.DB.prepare("DELETE FROM users").run();
   await env.DB.prepare(
@@ -92,7 +117,6 @@ beforeEach(async () => {
     `INSERT INTO connections (user_id, twitch_channel_id, twitch_login, twitch_display_name)
      VALUES ('user-1', '12345', 'cool_user', 'あずまぐ')`,
   ).run();
-  await env.STATE.delete(stateKey);
   vi.mocked(blueskyModule.setLiveStatus).mockReset();
   vi.mocked(blueskyModule.clearLiveStatus).mockReset();
   vi.mocked(blueskyModule.createStreamPost).mockReset();
@@ -125,12 +149,17 @@ describe("processStreamEvent", () => {
       uri: "https://www.twitch.tv/cool_user",
       title: "テスト配信",
     });
-    const state = (await env.STATE.get(stateKey, "json")) as {
-      is_live: boolean;
-      stream_id?: string;
-    };
-    expect(state.is_live).toBe(true);
-    expect(state.stream_id).toBe("stream-1");
+    expect(await liveRecord()).toEqual({ streamId: "stream-1" });
+    // 4時間の失効前に延長する予約が入る(山をならすためのゆらぎ付き)
+    expect(queued).toHaveLength(1);
+    expect(queued[0].body).toEqual({
+      type: "stream.renew",
+      broadcasterUserId: "12345",
+      streamId: "stream-1",
+    });
+    const delay = queued[0].options?.delaySeconds ?? 0;
+    expect(delay).toBeGreaterThanOrEqual(3 * 60 * 60);
+    expect(delay).toBeLessThan(3 * 60 * 60 + 30 * 60);
   });
 
   it("ignores events for channels without a connection", async () => {
@@ -143,18 +172,12 @@ describe("processStreamEvent", () => {
   });
 
   it("ignores duplicate stream.online events for the same stream", async () => {
-    await env.STATE.put(
-      stateKey,
-      JSON.stringify({
-        is_live: true,
-        stream_id: "stream-1",
-        updated_at: new Date().toISOString(),
-      }),
-    );
+    await markLive("stream-1");
 
     await processStreamEvent(makeEnv(), onlineEvent);
 
     expect(blueskyModule.setLiveStatus).not.toHaveBeenCalled();
+    expect(queued).toHaveLength(0);
   });
 
   it("falls back to the event login when the stream poll fails", async () => {
@@ -279,30 +302,17 @@ describe("processStreamEvent", () => {
     await processStreamEvent(e, onlineEvent);
 
     expect(blueskyModule.setLiveStatus).toHaveBeenCalledTimes(1);
-    const state = (await env.STATE.get(stateKey, "json")) as {
-      is_live: boolean;
-    };
-    expect(state.is_live).toBe(true);
+    expect(await liveRecord()).toEqual({ streamId: "stream-1" });
   });
 
   it("updates the state when a new stream id arrives while live", async () => {
     mockStreamStates(new Map([["12345", streamState]]));
-    await env.STATE.put(
-      stateKey,
-      JSON.stringify({
-        is_live: true,
-        stream_id: "stream-old",
-        updated_at: new Date().toISOString(),
-      }),
-    );
+    await markLive("stream-old");
 
     await processStreamEvent(makeEnv(), onlineEvent);
 
     expect(blueskyModule.setLiveStatus).toHaveBeenCalledTimes(1);
-    const state = (await env.STATE.get(stateKey, "json")) as {
-      stream_id?: string;
-    };
-    expect(state.stream_id).toBe("stream-1");
+    expect(await liveRecord()).toEqual({ streamId: "stream-1" });
   });
 
   it("skips Bluesky writes when the user has no bsky session", async () => {
@@ -311,30 +321,17 @@ describe("processStreamEvent", () => {
     await processStreamEvent(makeEnv(), onlineEvent);
 
     expect(blueskyModule.setLiveStatus).not.toHaveBeenCalled();
-    // KV 状態は更新される
-    const state = (await env.STATE.get(stateKey, "json")) as {
-      is_live: boolean;
-    };
-    expect(state.is_live).toBe(true);
+    // 配信中の記録は残る
+    expect(await liveRecord()).toEqual({ streamId: "stream-1" });
   });
 
   it("clears the live status on stream.offline when live", async () => {
-    await env.STATE.put(
-      stateKey,
-      JSON.stringify({
-        is_live: true,
-        stream_id: "stream-1",
-        updated_at: new Date().toISOString(),
-      }),
-    );
+    await markLive();
 
     await processStreamEvent(makeEnv(), offlineEvent);
 
     expect(blueskyModule.clearLiveStatus).toHaveBeenCalledTimes(1);
-    const state = (await env.STATE.get(stateKey, "json")) as {
-      is_live: boolean;
-    };
-    expect(state.is_live).toBe(false);
+    expect(await liveRecord()).toBeNull();
   });
 
   it("ignores stream.offline when not live", async () => {
@@ -344,14 +341,7 @@ describe("processStreamEvent", () => {
   });
 
   it("ignores repeated stream.offline deliveries", async () => {
-    await env.STATE.put(
-      stateKey,
-      JSON.stringify({
-        is_live: true,
-        stream_id: "stream-1",
-        updated_at: new Date().toISOString(),
-      }),
-    );
+    await markLive();
     mockStreamStates(new Map());
 
     await processStreamEvent(makeEnv(), offlineEvent);
@@ -361,30 +351,18 @@ describe("processStreamEvent", () => {
   });
 
   it("skips stream.offline when the stream is actually still live", async () => {
-    await env.STATE.put(
-      stateKey,
-      JSON.stringify({
-        is_live: true,
-        stream_id: "stream-1",
-        updated_at: new Date().toISOString(),
-      }),
-    );
+    await markLive();
     mockStreamStates(new Map([["12345", streamState]]));
 
     await processStreamEvent(makeEnv(), offlineEvent);
 
     expect(blueskyModule.clearLiveStatus).not.toHaveBeenCalled();
+    // 配信中の記録も残したままにする
+    expect(await liveRecord()).toEqual({ streamId: "stream-1" });
   });
 
   it("clears on stream.offline even when the verify poll fails", async () => {
-    await env.STATE.put(
-      stateKey,
-      JSON.stringify({
-        is_live: true,
-        stream_id: "stream-1",
-        updated_at: new Date().toISOString(),
-      }),
-    );
+    await markLive();
     vi.mocked(twitchModule.getStreamStatesBatch).mockRejectedValue(
       new Error("twitch down"),
     );
@@ -403,105 +381,90 @@ describe("processStreamEvent", () => {
   });
 });
 
-describe("refreshStreamStatus", () => {
-  it("refreshes the live status when streaming and KV is live", async () => {
-    mockStreamStates(new Map([["12345", streamState]]));
-    await env.STATE.put(
-      stateKey,
-      JSON.stringify({
-        is_live: true,
-        stream_id: "stream-1",
-        updated_at: new Date().toISOString(),
-      }),
-    );
+describe("processStreamRenewals", () => {
+  const renewal = {
+    type: "stream.renew" as const,
+    broadcasterUserId: "12345",
+    streamId: "stream-1",
+  };
 
-    await refreshStreamStatus(makeEnv());
+  it("配信が続いていればバッジを書き直し、次の延長を予約する", async () => {
+    await markLive("stream-1");
+    mockStreamStates(new Map([["12345", streamState]]));
+    const e = makeEnv() as AppEnv & { BSKY_POST_ON_START?: string };
+    e.BSKY_POST_ON_START = "true";
+
+    await processStreamRenewals(e, [renewal]);
 
     expect(blueskyModule.setLiveStatus).toHaveBeenCalledTimes(1);
-    expect(blueskyModule.setLiveStatus).toHaveBeenCalledWith(expect.anything(), {
-      uri: "https://www.twitch.tv/cool_user",
-      title: "テスト配信",
-    });
-    expect(blueskyModule.clearLiveStatus).not.toHaveBeenCalled();
+    // 延長では通常ポストを作らない
+    expect(blueskyModule.createStreamPost).not.toHaveBeenCalled();
+    expect(queued).toHaveLength(1);
+    expect(queued[0].body).toEqual(renewal);
   });
 
-  it("self-heals when streaming but KV is not live", async () => {
-    mockStreamStates(new Map([["12345", streamState]]));
+  it("配信が終わっていたらバッジを消さず、記録だけ片付ける", async () => {
+    await markLive("stream-1");
+    mockStreamStates(new Map());
 
-    await refreshStreamStatus(makeEnv());
-
-    expect(blueskyModule.setLiveStatus).toHaveBeenCalledTimes(1);
-    const state = (await env.STATE.get(stateKey, "json")) as {
-      is_live: boolean;
-    };
-    expect(state.is_live).toBe(true);
-  });
-
-  it("clears the stale live status when not streaming", async () => {
-    mockStreamStates(new Map([["12345", null]]));
-    await env.STATE.put(
-      stateKey,
-      JSON.stringify({
-        is_live: true,
-        stream_id: "stream-1",
-        updated_at: new Date().toISOString(),
-      }),
-    );
-
-    await refreshStreamStatus(makeEnv());
-
-    expect(blueskyModule.clearLiveStatus).toHaveBeenCalledTimes(1);
-    const state = (await env.STATE.get(stateKey, "json")) as {
-      is_live: boolean;
-    };
-    expect(state.is_live).toBe(false);
-  });
-
-  it("clears the stale live status when the Bluesky record still exists but KV is offline", async () => {
-    mockStreamStates(new Map([["12345", null]]));
-    vi.mocked(blueskyModule.statusRecordExists).mockResolvedValue(true);
-
-    await refreshStreamStatus(makeEnv());
-
-    expect(blueskyModule.clearLiveStatus).toHaveBeenCalledTimes(1);
-    const state = (await env.STATE.get(stateKey, "json")) as {
-      is_live: boolean;
-    };
-    expect(state.is_live).toBe(false);
-  });
-
-  it("does not update KV when the refresh setLiveStatus fails", async () => {
-    mockStreamStates(new Map([["12345", streamState]]));
-    vi.mocked(blueskyModule.setLiveStatus).mockRejectedValue(
-      new Error("bsky down"),
-    );
-
-    await expect(refreshStreamStatus(makeEnv())).resolves.toBeUndefined();
-    await expect(env.STATE.get(stateKey)).resolves.toBeNull();
-  });
-
-  it("does nothing when there are no connections", async () => {
-    await env.DB.prepare("DELETE FROM connections").run();
-
-    await refreshStreamStatus(makeEnv());
-
-    expect(twitchModule.getStreamStatesBatch).not.toHaveBeenCalled();
-  });
-
-  it("does nothing when not streaming and KV is not live", async () => {
-    mockStreamStates(new Map([["12345", null]]));
-
-    await refreshStreamStatus(makeEnv());
+    await processStreamRenewals(makeEnv(), [renewal]);
 
     expect(blueskyModule.setLiveStatus).not.toHaveBeenCalled();
+    // 消すのは stream.offline の役割。ここでは触らず自然失効に任せる
     expect(blueskyModule.clearLiveStatus).not.toHaveBeenCalled();
+    expect(queued).toHaveLength(0);
+    expect(await liveRecord()).toBeNull();
   });
 
-  it("catches failures without throwing", async () => {
-    vi.mocked(twitchModule.getStreamStatesBatch).mockRejectedValue(
-      new Error("twitch down"),
+  it("別の配信に入れ替わっていたら延長しない", async () => {
+    await markLive("stream-2");
+    mockStreamStates(new Map([["12345", streamState]]));
+
+    await processStreamRenewals(makeEnv(), [renewal]);
+
+    expect(blueskyModule.setLiveStatus).not.toHaveBeenCalled();
+    expect(queued).toHaveLength(0);
+    // 新しい配信の記録は残す
+    expect(await liveRecord()).toEqual({ streamId: "stream-2" });
+  });
+
+  it("配信中の記録が無ければ何もしない", async () => {
+    mockStreamStates(new Map([["12345", streamState]]));
+
+    await processStreamRenewals(makeEnv(), [renewal]);
+
+    expect(blueskyModule.setLiveStatus).not.toHaveBeenCalled();
+    expect(queued).toHaveLength(0);
+  });
+
+  it("バッチ内の生存確認は Helix 1リクエストにまとめる", async () => {
+    await env.DB.prepare(
+      `INSERT INTO connections (user_id, twitch_channel_id, twitch_login, twitch_display_name)
+       VALUES ('user-1', '67890', 'second_user', '別チャネル')`,
+    ).run();
+    await markLive("stream-1");
+    await env.DB.prepare(
+      `INSERT INTO live_streams (twitch_channel_id, stream_id) VALUES ('67890', 'stream-2')`,
+    ).run();
+    mockStreamStates(
+      new Map([
+        ["12345", streamState],
+        ["67890", { ...streamState, id: "stream-2", userLogin: "second_user" }],
+      ]),
     );
 
-    await expect(refreshStreamStatus(makeEnv())).resolves.toBeUndefined();
+    await processStreamRenewals(makeEnv(), [
+      renewal,
+      renewal, // 同じチャネルの重複は畳まれる
+      { type: "stream.renew", broadcasterUserId: "67890", streamId: "stream-2" },
+    ]);
+
+    // チャネルが増えても問い合わせは1回きり
+    expect(twitchModule.getStreamStatesBatch).toHaveBeenCalledTimes(1);
+    expect(twitchModule.getStreamStatesBatch).toHaveBeenCalledWith(
+      expect.anything(),
+      ["12345", "67890"],
+    );
+    expect(queued).toHaveLength(2);
   });
 });
