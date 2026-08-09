@@ -251,7 +251,7 @@ describe("サポートページ(HTTP)", () => {
     expect(res.status).toBe(302);
   });
 
-  it("ログイン済みは特典ページを表示する", async () => {
+  it("ログイン済みはマルチチャネル有効化ページを表示する", async () => {
     const env0 = makeEnv();
     const { cookie } = await loginAndGetCookie(env0);
     const res = await fetchAs(
@@ -261,8 +261,20 @@ describe("サポートページ(HTTP)", () => {
       }),
     );
     const body = await res.text();
-    expect(body).toContain("サポートコードを入力");
-    expect(body).toContain("サポートコードでできること");
+    // 利用状況は有効/無効のバッジだけを示す
+    expect(body).toContain("status-badge");
+    expect(body).toContain(">無効</span>");
+    expect(body).not.toContain("無料利用では1チャネルまで連携できます");
+    // 有効化する方法の説明が、入力欄より先に出る
+    const methodsAt = body.indexOf("有効化する方法");
+    const codeFormAt = body.indexOf('action="/support/activate"');
+    const subFormAt = body.indexOf('action="/support/check-subscription"');
+    expect(methodsAt).toBeGreaterThan(-1);
+    expect(codeFormAt).toBeGreaterThan(methodsAt);
+    expect(subFormAt).toBeGreaterThan(methodsAt);
+    expect(body).toContain("マルチチャネル機能とは");
+    expect(body).toContain("サポートコードで有効化");
+    expect(body).toContain("Twitchサブスクで有効化");
     expect(body).toContain("複数のTwitchチャネル");
     expect(body).toContain("サポーター");
     expect(body).toContain("パトロン");
@@ -271,6 +283,8 @@ describe("サポートページ(HTTP)", () => {
     expect(body).toContain("別サービス");
     expect(body).toContain('href="https://twica.bluemoon.works/plans"');
     expect(body).toContain("同一のものをご利用いただけます");
+    // サブスク確認ボタンには azumagbanjo のTwitchリンクを添える
+    expect(body).toContain('href="https://www.twitch.tv/azumagbanjo"');
     expect(body).toContain('rel="noopener noreferrer"');
     expect(body).toContain("(なし)");
   });

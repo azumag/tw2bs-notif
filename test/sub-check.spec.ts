@@ -290,7 +290,7 @@ describe("サブスクページ(HTTP)", () => {
       }),
     );
     const body = await res.text();
-    expect(body).toContain("無効中");
+    expect(body).toContain("判定を無効にしています");
     expect(body).toContain("/support/enable-subscription");
     expect(body).not.toContain("/support/check-subscription");
   });

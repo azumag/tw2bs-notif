@@ -153,6 +153,42 @@ const PAGE_SCRIPT = `(() => {
     });
   }
 
+  // 自動ポストのトグルは切り替えた時点で保存する。
+  // 投稿文は「変更を保存」でまとめて保存するため、ここでは送らない。
+  const fieldValue = (form, name) => {
+    const input = form.querySelector('[name="' + name + '"]');
+    return input instanceof HTMLInputElement ? input.value : "";
+  };
+  for (const toggle of document.querySelectorAll("[data-post-on-start]")) {
+    toggle.addEventListener("change", () => {
+      const form = toggle.closest("[data-posting-form]");
+      if (!(form instanceof HTMLFormElement) || !(toggle instanceof HTMLInputElement)) return;
+      const status = form.querySelector("[data-post-on-start-status]");
+      const setStatus = (text, isError) => {
+        if (!(status instanceof HTMLElement)) return;
+        status.textContent = text;
+        status.classList.toggle("is-error", !!isError);
+      };
+      const body = new URLSearchParams();
+      body.set("csrf", fieldValue(form, "csrf"));
+      body.set("connection_id", fieldValue(form, "connection_id"));
+      body.set("only", "post_on_start");
+      if (toggle.checked) body.set("post_on_start", "1");
+      setStatus("保存中…", false);
+      fetch(form.action, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: body.toString(),
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error("save failed");
+          setStatus(toggle.checked ? "ONで保存しました" : "OFFで保存しました", false);
+        })
+        .catch(() => setStatus("保存できませんでした", true));
+    });
+  }
+
   for (const button of document.querySelectorAll("[data-insert-token]")) {
     button.addEventListener("click", () => {
       if (!(button instanceof HTMLButtonElement)) return;
@@ -685,6 +721,10 @@ pre code { padding: 0; background: transparent; }
   font-weight: 650;
 }
 
+.switch-group { display: grid; flex: 0 0 auto; justify-items: end; gap: 0.2rem; }
+.switch-status { min-height: 1.1em; color: var(--muted); font-size: 0.74rem; font-weight: 600; }
+.switch-status.is-error { color: var(--danger); }
+
 .field { margin-bottom: 0.85rem; }
 .field label { display: block; margin-bottom: 0.25rem; }
 .field .help-text { display: block; margin-bottom: 0.25rem; font-size: 0.84rem; }
@@ -734,7 +774,6 @@ pre code { padding: 0; background: transparent; }
   padding-top: 0.65rem;
 }
 
-.channel-actions summary,
 .inline-disclosure summary {
   color: var(--muted-strong);
   font-size: 0.84rem;
@@ -742,7 +781,8 @@ pre code { padding: 0; background: transparent; }
   cursor: pointer;
 }
 
-.channel-actions p { color: var(--muted); font-size: 0.82rem; }
+.channel-actions > strong { color: var(--muted-strong); font-size: 0.84rem; }
+.channel-actions p { margin: 0.2rem 0 0.6rem; color: var(--muted); font-size: 0.82rem; }
 
 .disconnect-form { margin: 0; }
 
@@ -809,31 +849,23 @@ pre code { padding: 0; background: transparent; }
 .content-section h2 { margin: 0 0 0.45rem; color: var(--text-strong); font-size: 1.3rem; }
 .content-section > p { max-width: 780px; color: var(--muted-strong); }
 
-.management-disclosure {
+.management-section {
   border-top: 1px solid var(--border);
   margin-top: 1.75rem;
   padding-top: 1rem;
 }
 
-.management-disclosure > summary,
-.support-subscription > summary {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  border-radius: 9px;
+.management-heading {
+  display: grid;
+  gap: 0.05rem;
   color: var(--text-strong);
-  padding: 0.7rem 0;
-  cursor: pointer;
+  padding: 0.2rem 0 0.5rem;
 }
 
-.management-disclosure > summary span,
-.support-subscription > summary span:first-child { display: grid; gap: 0.05rem; }
-.management-disclosure > summary small,
-.support-subscription > summary small { color: var(--muted); font-weight: 450; }
+.management-heading small { color: var(--muted); font-weight: 450; }
 
-.management-disclosure > p,
-.management-disclosure > .inline-form { margin-top: 0.5rem; }
+.management-section > p,
+.management-section > .inline-form { margin-top: 0.5rem; }
 
 .inline-form { display: flex; max-width: 680px; align-items: end; gap: 0.75rem; }
 .inline-form .field { flex: 1; margin: 0; }
@@ -971,8 +1003,6 @@ tr:last-child td { border-bottom: 0; }
 .status-line:first-of-type { padding-top: 0; }
 .status-line:last-of-type { border-bottom: 0; padding-bottom: 0; }
 
-.forms-stack { display: grid; gap: 0.65rem; }
-.forms-stack form { margin: 0; }
 
 .logout-form { margin-top: 2rem; }
 
@@ -995,6 +1025,7 @@ tr:last-child td { border-bottom: 0; }
 }
 
 .focus-card > h2 { margin: 0 0 0.4rem; color: var(--text-strong); font-size: 1.15rem; }
+.focus-card > h3 { margin: 1.35rem 0 0.3rem; color: var(--text-strong); font-size: 1rem; }
 .focus-card > p { color: var(--muted-strong); }
 
 .connection-state {
@@ -1005,6 +1036,14 @@ tr:last-child td { border-bottom: 0; }
   border-bottom: 1px solid var(--border);
   margin-bottom: 0.9rem;
   padding-bottom: 0.9rem;
+}
+
+/* 見出しの下に置くときは、区切り線を上側に付け替える。 */
+.connection-state.is-under-heading {
+  border-top: 1px solid var(--border);
+  border-bottom: 0;
+  margin: 0.9rem 0 0;
+  padding: 0.9rem 0 0;
 }
 
 .connection-state > div { display: grid; gap: 0.1rem; }
@@ -1038,9 +1077,6 @@ tr:last-child td { border-bottom: 0; }
 .support-page { max-width: 860px; }
 .support-code-form { display: flex; align-items: end; gap: 0.75rem; margin-top: 0.9rem; }
 .support-code-form .field { flex: 1; margin: 0; }
-.benefit-summary { background: var(--surface-soft); }
-.support-subscription { padding: 0.9rem 1.4rem; }
-.support-subscription[open] { padding-bottom: 1.4rem; }
 
 @media (max-width: 980px) {
   .header-inner, .page-shell, .footer-inner { width: min(100% - 32px, 1180px); }
