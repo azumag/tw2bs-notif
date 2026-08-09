@@ -7,7 +7,21 @@ import {
   type SessionStore,
   type StateStore,
 } from "@atproto/oauth-client";
+import type {
+  AtprotoIdentityDidMethods,
+  DidResolver,
+  ResolvedDocument,
+  ResolveDidOptions,
+} from "@atproto-labs/did-resolver";
 import type { ResolvedHandle } from "@atproto-labs/handle-resolver";
+import {
+  DidError,
+  didDocumentValidator,
+  didWebToUrl,
+  isDidPlc,
+  isDidWeb,
+  type Did,
+} from "@atproto/did";
 import { WebcryptoKey } from "@atproto/jwk-webcrypto";
 import { SimpleStoreMemory } from "@atproto-labs/simple-store-memory";
 import type { Key } from "@atproto/jwk";
@@ -168,6 +182,126 @@ export function createOAuthFetch(
   };
 }
 
+function getDidDocumentUrl(did: Did): URL {
+  if (isDidPlc(did)) {
+    return new URL(`/${encodeURIComponent(did)}`, PLC_DIRECTORY_ORIGIN);
+  }
+  if (isDidWeb(did)) {
+    const base = didWebToUrl(did);
+    if (base.protocol !== "https:") {
+      throw new DidError(
+        did,
+        'Resolution of "http" did:web is not allowed',
+        "did-web-http-not-allowed",
+      );
+    }
+    return base.pathname === "/"
+      ? new URL("/.well-known/did.json", base)
+      : new URL(`${base.pathname}/did.json`, base);
+  }
+  throw new DidError(did, "Unsupported DID method", "did-method-invalid");
+}
+
+async function cancelResponseBody(response: Response): Promise<void> {
+  await response.body?.cancel().catch(() => undefined);
+}
+
+/**
+ * Workers 互換の DID resolver。
+ * 上流 resolver は fetch ラッパーより先に redirect="error" の Request を生成するため、
+ * no-follow を保つ redirect="manual" で直接取得して同じ検証を行う。
+ */
+export function createWorkersDidResolver(
+  oauthFetch: Fetch = createOAuthFetch(),
+): DidResolver<AtprotoIdentityDidMethods> {
+  return {
+    async resolve<D extends Did>(
+      did: D,
+      options?: ResolveDidOptions,
+    ): Promise<ResolvedDocument<D, AtprotoIdentityDidMethods>> {
+      options?.signal?.throwIfAborted();
+      const url = getDidDocumentUrl(did);
+      let response: Response;
+      try {
+        response = await oauthFetch(url, {
+          redirect: "manual",
+          headers: {
+            accept: "application/did+ld+json,application/json",
+          },
+          signal: options?.signal,
+        });
+      } catch (cause) {
+        throw new DidError(
+          did,
+          cause instanceof Error ? cause.message : "Failed to fetch DID document",
+          "did-fetch-error",
+          400,
+          cause,
+        );
+      }
+
+      if (!response.ok) {
+        await cancelResponseBody(response);
+        throw new DidError(
+          did,
+          `Unexpected status code ${response.status} for "${url}"`,
+          "did-fetch-error",
+          response.status >= 500 ? 502 : response.status,
+        );
+      }
+
+      const mime = response.headers
+        .get("content-type")
+        ?.split(";", 1)[0]
+        .trim()
+        .toLowerCase();
+      if (mime !== "application/json" && mime !== "application/did+ld+json") {
+        await cancelResponseBody(response);
+        throw new DidError(
+          did,
+          `Unexpected content type for "${url}"`,
+          "did-fetch-error",
+          502,
+        );
+      }
+
+      let json: unknown;
+      try {
+        json = await response.json();
+      } catch (cause) {
+        throw new DidError(
+          did,
+          "Unable to parse response as JSON",
+          "did-fetch-error",
+          502,
+          cause,
+        );
+      }
+
+      let document;
+      try {
+        document = didDocumentValidator.parse(json);
+      } catch (cause) {
+        throw new DidError(
+          did,
+          "Invalid DID document",
+          "did-document-format-error",
+          503,
+          cause,
+        );
+      }
+      if (document.id !== did) {
+        throw new DidError(
+          did,
+          `DID document id (${document.id}) does not match DID`,
+          "did-document-id-mismatch",
+        );
+      }
+      return document as ResolvedDocument<D, AtprotoIdentityDidMethods>;
+    },
+  };
+}
+
 // WebCrypto はアルゴリズム名が「SHA-256」形式必須(SDK は「sha256」で渡す)
 const DIGEST_NAMES: Record<string, string> = {
   sha256: "SHA-256",
@@ -279,11 +413,13 @@ let client: OAuthClient | undefined;
 
 export function getOAuthClient(env: AppEnv): OAuthClient {
   if (client) return client;
+  const oauthFetch = createOAuthFetch();
   client = new OAuthClient({
     responseMode: "query",
     clientMetadata: BSKY_CLIENT_METADATA,
     handleResolver: createHandleResolver(),
-    fetch: createOAuthFetch(),
+    didResolver: createWorkersDidResolver(oauthFetch),
+    fetch: oauthFetch,
     runtimeImplementation,
     stateStore: createKvStateStore(env),
     sessionStore: createD1SessionStore(env),
