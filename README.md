@@ -15,6 +15,7 @@ Twitch 配信開始を EventSub で検知し、Bluesky の streaming status(`app
   - 4時間超の配信は cron(30分毎)が record を再書き込みして継続
 - 特典(/support): FANBOX サポートコード or Twitch サブスク(azumagbanjo)で複数チャンネル連携が解放
   - サポートコードの取得先: [azumagのFANBOX](https://azumag.fanbox.cc/)
+  - 特典有効化後は `/channels` の「マルチチャンネル設定」から、管理している別チャンネルをTwitchユーザー名で追加
 
 ## 開発
 
