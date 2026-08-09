@@ -179,7 +179,7 @@ describe("processStreamEvent", () => {
       {
         uri: "https://www.twitch.tv/cool_user",
         title: "テスト配信",
-        text: "配信開始しました\nテスト配信",
+        text: "配信開始しました\nテスト配信\nMusic",
       },
     );
   });

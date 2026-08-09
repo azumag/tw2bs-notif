@@ -14,11 +14,6 @@ export interface PostTemplateContext {
   url: string;
 }
 
-export interface PostTemplateOptions {
-  includeTitle: boolean;
-  includeCategory: boolean;
-}
-
 /** 保存前にテンプレートのサイズと変数名を検証する。 */
 export function validatePostTemplate(template: string): string | null {
   if (!template.trim()) {
@@ -44,15 +39,18 @@ function truncatePostText(text: string): string {
   return `${codePoints.slice(0, MAX_POST_TEXT_LENGTH - 1).join("")}…`;
 }
 
-/** チャンネル設定と配信情報から投稿本文を生成する。 */
+/**
+ * チャンネル設定と配信情報から投稿本文を生成する。
+ * テンプレートに含めた変数だけが展開される({title}/{category} を
+ * 書かなければその情報は本文に出ない。個別のON/OFFスイッチは持たない)。
+ */
 export function formatStreamPostText(
   template: string,
   context: PostTemplateContext,
-  options: PostTemplateOptions,
 ): string {
   const values: Record<string, string> = {
-    title: options.includeTitle ? (context.title ?? "") : "",
-    category: options.includeCategory ? (context.category ?? "") : "",
+    title: context.title ?? "",
+    category: context.category ?? "",
     channel: context.channel,
     url: context.url,
   };

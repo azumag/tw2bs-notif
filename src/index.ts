@@ -196,9 +196,10 @@ function renderOperationUnavailable(session: SessionLike): Response {
   });
 }
 
-function renderIndex(
+async function renderIndex(
   session: { twitchUserId: string; csrf: string } | null,
-): Response {
+  env: AppEnv,
+): Promise<Response> {
   if (!session) {
     return htmlPage(
       "orbsky",
@@ -224,6 +225,28 @@ function renderIndex(
       { currentPath: "/" },
     );
   }
+  const bskyDid = await getBskyDidForUser(env, session.twitchUserId);
+  const dashboardFocus = bskyDid
+    ? `<a class="dashboard-primary" href="${CHANNELS_PATH}">
+         <span class="eyebrow">メイン</span>
+         <strong>投稿設定を開く</strong>
+         <span>自動ポストのON/OFFと本文をチャンネルごとに編集</span>
+       </a>
+       <div class="dashboard-links" aria-label="その他の設定">
+         <a href="${SETTINGS_PATH}"><strong>Bluesky連携</strong><span>投稿先を確認・変更</span></a>
+         <a href="${SUPPORT_PATH}"><strong>特典</strong><span>マルチチャンネルを管理</span></a>
+         <a href="${GUIDE_PATH}"><strong>使い方</strong><span>設定の流れを確認</span></a>
+       </div>`
+    : `<a class="dashboard-primary" href="${SETTINGS_PATH}">
+         <span class="eyebrow">はじめに</span>
+         <strong>Blueskyと連携する</strong>
+         <span>配信中ステータスと自動ポストの投稿先を選択します</span>
+       </a>
+       <div class="dashboard-links" aria-label="その他の設定">
+         <a href="${CHANNELS_PATH}"><strong>投稿設定</strong><span>自動ポストのON/OFFと本文を編集</span></a>
+         <a href="${SUPPORT_PATH}"><strong>特典</strong><span>マルチチャンネルを管理</span></a>
+         <a href="${GUIDE_PATH}"><strong>使い方</strong><span>設定の流れを確認</span></a>
+       </div>`;
   return htmlPage(
     "orbsky",
     `<section class="dashboard">
@@ -231,16 +254,7 @@ function renderIndex(
        <h1>配信のお知らせ</h1>
        <p>投稿設定やBluesky・特典の連携状態を、ここからまとめて確認できます。</p>
        <div class="dashboard-focus">
-         <a class="dashboard-primary" href="${CHANNELS_PATH}">
-           <span class="eyebrow">メイン</span>
-           <strong>投稿設定を開く</strong>
-           <span>自動ポストのON/OFFと本文をチャンネルごとに編集</span>
-         </a>
-         <div class="dashboard-links" aria-label="その他の設定">
-           <a href="${SETTINGS_PATH}"><strong>Bluesky連携</strong><span>投稿先を確認・変更</span></a>
-           <a href="${SUPPORT_PATH}"><strong>特典</strong><span>マルチチャンネルを管理</span></a>
-           <a href="${GUIDE_PATH}"><strong>使い方</strong><span>設定の流れを確認</span></a>
-         </div>
+         ${dashboardFocus}
        </div>
        <div class="dashboard-footer">
          <span class="compact-status is-success">Twitchログイン済み</span>
@@ -317,7 +331,7 @@ function renderGuide(
 {title}
 カテゴリ: {category}
 {url}</code></pre>
-     <p>「配信タイトルをポスト本文に含める」「カテゴリをポスト本文に含める」のチェックを外すと、対応する変数は空になります。</p>
+     <p>本文に書いた変数だけが投稿に反映されます。配信タイトルやカテゴリを含めたくない場合は、テンプレートからその変数を削除してください。</p>
 
      <h2>無料利用と特典</h2>
      <div class="table-wrap"><table>
@@ -483,10 +497,13 @@ async function handleCallback(
     const { token } = await createSession(env, user.id);
     const secure = url.protocol === "https:";
     logInfo("auth", "login success", { twitchUserId: user.id });
+    // Bluesky未連携なら、投稿設定より先に連携画面へ誘導する
+    // (投稿先が無いと自動ポストを設定しても意味が無いため)。
+    const bskyDid = await getBskyDidForUser(env, user.id);
     return new Response(null, {
       status: 302,
       headers: {
-        Location: "/",
+        Location: bskyDid ? "/" : SETTINGS_PATH,
         "Set-Cookie": sessionCookieHeader(token, secure),
       },
     });
@@ -573,6 +590,7 @@ async function handleChannels(
            </div>
            <div class="variable-group">
              <strong class="section-label">差し込み項目</strong>
+             <span class="help-text">投稿文に含めたい項目だけをタップして挿入してください。不要な項目は本文から削除すれば投稿に含まれません。</span>
              <div class="variable-buttons">
                <button class="variable-chip" type="button" data-insert-token="{title}">{title}<span>タイトル</span></button>
                <button class="variable-chip" type="button" data-insert-token="{category}">{category}<span>カテゴリ</span></button>
@@ -580,19 +598,6 @@ async function handleChannels(
                <button class="variable-chip" type="button" data-insert-token="{url}">{url}<span>URL</span></button>
              </div>
            </div>
-           <fieldset class="include-options">
-             <legend>投稿に含める情報</legend>
-             <label for="include_title_${suffix}">
-               <input id="include_title_${suffix}" type="checkbox" name="include_title" value="1"
-                 data-include-title${c.postIncludeTitle ? " checked" : ""}>
-               配信タイトル
-             </label>
-             <label for="include_category_${suffix}">
-               <input id="include_category_${suffix}" type="checkbox" name="include_category" value="1"
-                 data-include-category${c.postIncludeCategory ? " checked" : ""}>
-               カテゴリ
-             </label>
-           </fieldset>
            <div class="action-row">
              <button type="submit">変更を保存</button>
            </div>
@@ -616,7 +621,7 @@ async function handleChannels(
          <button type="submit">チャンネルを追加</button>
        </form>`
     : `<p>サポートコードまたはTwitchサブスク特典を有効化すると、管理している複数のチャンネルを追加できます。</p>
-       <p><a class="button button-secondary" href="${SUPPORT_PATH}">特典を有効化する</a></p>`;
+       <p class="action-row"><a class="button button-secondary" href="${SUPPORT_PATH}">特典を有効化する</a></p>`;
   const header = `<div class="channel-page-header">
        <div>
          <span class="eyebrow">チャンネル連携</span>
@@ -642,7 +647,7 @@ async function handleChannels(
            <span class="compact-status">連携が必要</span>
          </div>
          <p>ログイン中のTwitchアカウントのチャンネルを連携すると、配信開始・終了をBlueskyへ自動で反映できるようになります。</p>
-         <form method="post" action="${CHANNELS_CONNECT_PATH}">
+         <form class="action-row" method="post" action="${CHANNELS_CONNECT_PATH}">
            <input type="hidden" name="csrf" value="${session.csrf}">
            <button type="submit">自分のチャンネルを連携する</button>
          </form>
@@ -681,7 +686,7 @@ async function handleChannels(
          <section>
            <h2>自分のチャンネル</h2>
            <p>ログイン中のTwitchアカウントが管理するチャンネルを連携します。</p>
-           <form method="post" action="${CHANNELS_CONNECT_PATH}">
+           <form class="action-row" method="post" action="${CHANNELS_CONNECT_PATH}">
              <input type="hidden" name="csrf" value="${session.csrf}">
              <button class="button-secondary" type="submit">自分のチャンネルを連携する</button>
            </form>
@@ -931,7 +936,7 @@ async function handleSupport(
   let hasSubResult: boolean | null = null;
   if (subDisabled) {
     subStatus = "無効中";
-    subActions = `<form method="post" action="${SUB_ENABLE_PATH}">
+    subActions = `<form class="action-row" method="post" action="${SUB_ENABLE_PATH}">
        <input type="hidden" name="csrf" value="${session.csrf}">
        <button class="button-secondary" type="submit">サブスク判定を再有効化</button>
      </form>`;
@@ -943,11 +948,11 @@ async function handleSupport(
         : hasSubResult
           ? "サブスク中"
           : "サブスクなし";
-    subActions = `<form method="post" action="${SUB_CHECK_PATH}">
+    subActions = `<form class="action-row" method="post" action="${SUB_CHECK_PATH}">
        <input type="hidden" name="csrf" value="${session.csrf}">
        <button class="button-secondary" type="submit">サブスク状態を再確認</button>
      </form>
-     <form method="post" action="${SUB_DISABLE_PATH}">
+     <form class="action-row" method="post" action="${SUB_DISABLE_PATH}">
        <input type="hidden" name="csrf" value="${session.csrf}">
        <button class="text-button" type="submit">サブスク判定を無効にする</button>
      </form>`;
@@ -973,7 +978,7 @@ async function handleSupport(
            <span class="compact-status ${entitlementActive ? "is-primary" : ""}">${entitlementActive ? "利用中" : "未利用"}</span>
          </div>
          <p>${entitlementActive ? "複数のTwitchチャンネルを追加できます。" : "無料利用では1チャンネルまで連携できます。"}</p>
-         <p><a class="button button-secondary" href="${CHANNELS_PATH}">チャンネル設定を開く</a></p>
+         <p class="action-row"><a class="button button-secondary" href="${CHANNELS_PATH}">チャンネル設定を開く</a></p>
        </section>
 
        <section class="focus-card">
@@ -999,7 +1004,7 @@ async function handleSupport(
              </ul>
              <h3>FANBOXでサポートコードを受け取る</h3>
              <p>支援後、FANBOXのメッセージまたは支援者向け投稿でコードを確認してください。</p>
-             <p><a class="button button-secondary" href="${FANBOX_URL}" target="_blank" rel="noopener noreferrer">azumagのFANBOXを見る</a></p>
+             <p class="action-row"><a class="button button-secondary" href="${FANBOX_URL}" target="_blank" rel="noopener noreferrer">azumagのFANBOXを見る</a></p>
            </div>
          </details>
 
@@ -1276,8 +1281,6 @@ async function handleChannelPostingSettings(
       {
         postOnStart: form?.get("post_on_start") === "1",
         postTemplate,
-        postIncludeTitle: form?.get("include_title") === "1",
-        postIncludeCategory: form?.get("include_category") === "1",
       },
     );
     if (!updated) {
@@ -1347,7 +1350,7 @@ async function handleSettings(
          <span class="compact-status">設定が必要</span>
        </div>
        <p>配信ステータスを反映するBlueskyアカウントを選択してください。</p>
-       <p><a class="button" href="${BSKY_LOGIN_PATH}">Blueskyと連携</a></p>
+       <p class="action-row"><a class="button" href="${BSKY_LOGIN_PATH}">Blueskyと連携</a></p>
        <p><small>連携画面でログインまたはアカウント選択ができます。</small></p>`;
   return htmlPage(
     "orbsky - 設定",
@@ -1452,7 +1455,7 @@ export default {
     }
     if (url.pathname === "/" && request.method === "GET") {
       const session = await getSession(env, request);
-      return renderIndex(session);
+      return renderIndex(session, env);
     }
     return new Response("Not Found", { status: 404 });
   },

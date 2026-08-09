@@ -244,7 +244,7 @@ describe("E2E: Twitch EventSub → Bluesky streaming status", () => {
       {
         uri: "https://www.twitch.tv/azumag",
         title: "E2Eテスト配信",
-        text: "配信開始しました\nE2Eテスト配信",
+        text: "配信開始しました\nE2Eテスト配信\nMusic",
       },
     );
 

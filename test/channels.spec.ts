@@ -244,6 +244,8 @@ describe("チャンネル連携ページ", () => {
     expect(body).not.toContain('class="progress-strip"');
     expect(body).not.toContain('role="tablist"');
     expect(body).not.toContain('class="channel-tab');
+    expect(body).not.toContain("include_title");
+    expect(body).not.toContain("include_category");
   });
 
   it("複数チャンネルのときだけチャンネル選択タブを表示する", async () => {
@@ -270,7 +272,7 @@ describe("チャンネル連携ページ", () => {
     expect(body).toContain("azumagsandbox");
   });
 
-  it("無料ユーザーでもチャンネル別の本文・タイトル・カテゴリ設定を保存できる", async () => {
+  it("無料ユーザーでもチャンネル別の投稿本文設定を保存できる", async () => {
     const env0 = makeEnv();
     const { cookie, csrf } = await loginAs(env0);
     const inserted = await env0.DB.prepare(
@@ -291,8 +293,6 @@ describe("チャンネル連携ページ", () => {
           connection_id: String(connectionId),
           post_on_start: "1",
           post_template: postTemplate,
-          include_title: "1",
-          include_category: "1",
         }),
       }),
     );
@@ -302,24 +302,12 @@ describe("チャンネル連携ページ", () => {
     );
 
     const row = await env0.DB.prepare(
-      `SELECT post_on_start AS enabled, post_template AS postTemplate,
-              post_include_title AS includeTitle,
-              post_include_category AS includeCategory
+      `SELECT post_on_start AS enabled, post_template AS postTemplate
        FROM connections WHERE id = ?`,
     )
       .bind(connectionId)
-      .first<{
-        enabled: number;
-        postTemplate: string;
-        includeTitle: number;
-        includeCategory: number;
-      }>();
-    expect(row).toEqual({
-      enabled: 1,
-      postTemplate,
-      includeTitle: 1,
-      includeCategory: 1,
-    });
+      .first<{ enabled: number; postTemplate: string }>();
+    expect(row).toEqual({ enabled: 1, postTemplate });
 
     const saved = await fetchAs(
       env0,

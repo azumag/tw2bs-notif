@@ -77,14 +77,12 @@ const PAGE_SCRIPT = `(() => {
     const form = panel.querySelector("[data-posting-form]");
     if (!(form instanceof HTMLFormElement)) return;
     const textarea = form.querySelector("[data-post-template]");
-    const includeTitle = form.querySelector("[data-include-title]");
-    const includeCategory = form.querySelector("[data-include-category]");
     const postOnStart = form.querySelector("[data-post-on-start]");
     if (!(textarea instanceof HTMLTextAreaElement)) return;
 
     let rendered = textarea.value;
-    rendered = replaceAll(rendered, "{title}", includeTitle instanceof HTMLInputElement && includeTitle.checked ? "週末の雑談配信" : "");
-    rendered = replaceAll(rendered, "{category}", includeCategory instanceof HTMLInputElement && includeCategory.checked ? "Just Chatting" : "");
+    rendered = replaceAll(rendered, "{title}", "週末の雑談配信");
+    rendered = replaceAll(rendered, "{category}", "Just Chatting");
     rendered = replaceAll(rendered, "{channel}", panel.dataset.channelDisplay || panel.dataset.channelLogin || "Twitchチャンネル");
     rendered = replaceAll(rendered, "{url}", "https://twitch.tv/" + (panel.dataset.channelLogin || "channel"));
     rendered = rendered.replace(/\\n{3,}/g, "\\n\\n").trim();
@@ -703,47 +701,6 @@ pre code { padding: 0; background: transparent; }
 .variable-chip span { margin-left: 0.35rem; font-family: inherit; font-size: 0.72rem; opacity: 0.78; }
 .variable-chip:hover { border-color: var(--sky); background: var(--sky-soft); color: var(--sky); }
 
-.include-options {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.55rem 1.25rem;
-  border: 0;
-  margin: 0.55rem 0 0;
-  padding: 0;
-}
-
-.include-options legend {
-  width: 100%;
-  color: var(--muted-strong);
-  margin-bottom: 0.15rem;
-  padding: 0;
-  font-size: 0.82rem;
-  font-weight: 650;
-}
-
-.include-options label {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  color: var(--text);
-  font-size: 0.88rem;
-  font-weight: 550;
-}
-
-.include-options input { width: 18px; height: 18px; margin: 0; }
-
-.setting-check {
-  display: grid;
-  grid-template-columns: 20px 1fr;
-  gap: 0.55rem;
-  align-items: start;
-  margin: 0.35rem 0;
-}
-
-.setting-check input { width: 18px; height: 18px; margin: 0.3rem 0 0; }
-.setting-check label { font-size: 0.92rem; }
-.setting-check small { display: block; font-weight: 400; }
-
 .action-row {
   display: flex;
   flex-wrap: wrap;
@@ -1144,6 +1101,8 @@ tr:last-child td { border-bottom: 0; }
   .next-action, .support-code-form { align-items: stretch; flex-direction: column; }
   .next-action .button, .support-code-form button { width: 100%; }
   .dashboard-footer { align-items: flex-start; flex-direction: column; }
+  .hero-actions { flex-direction: column; align-items: stretch; }
+  .hero-actions > * { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

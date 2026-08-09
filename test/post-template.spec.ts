@@ -14,38 +14,26 @@ const context = {
 };
 
 describe("post template", () => {
-  it("選択した配信情報をテンプレートへ展開する", () => {
-    expect(
-      formatStreamPostText(DEFAULT_POST_TEMPLATE, context, {
-        includeTitle: true,
-        includeCategory: true,
-      }),
-    ).toBe("配信開始しました\n朝の練習配信\nMusic");
+  it("テンプレートに書いた変数を配信情報へ展開する", () => {
+    expect(formatStreamPostText(DEFAULT_POST_TEMPLATE, context)).toBe(
+      "配信開始しました\n朝の練習配信\nMusic",
+    );
   });
 
-  it("OFFの情報と空行を本文から除く", () => {
-    expect(
-      formatStreamPostText(DEFAULT_POST_TEMPLATE, context, {
-        includeTitle: false,
-        includeCategory: false,
-      }),
-    ).toBe("配信開始しました");
+  it("テンプレートに書かなかった変数と空行は本文に出ない", () => {
+    expect(formatStreamPostText("配信開始しました", context)).toBe(
+      "配信開始しました",
+    );
   });
 
   it("チャンネル名とURLを使った自由なフォーマットを作れる", () => {
-    expect(
-      formatStreamPostText("{channel} is live!\n{url}", context, {
-        includeTitle: false,
-        includeCategory: false,
-      }),
-    ).toBe("あずまぐ is live!\nhttps://www.twitch.tv/azumagbanjo");
+    expect(formatStreamPostText("{channel} is live!\n{url}", context)).toBe(
+      "あずまぐ is live!\nhttps://www.twitch.tv/azumagbanjo",
+    );
   });
 
   it("展開後の本文をBluesky上限内へ切り詰める", () => {
-    const text = formatStreamPostText("あ".repeat(400), context, {
-      includeTitle: true,
-      includeCategory: true,
-    });
+    const text = formatStreamPostText("あ".repeat(400), context);
     expect(Array.from(text)).toHaveLength(MAX_POST_TEXT_LENGTH);
     expect(text.endsWith("…")).toBe(true);
   });
