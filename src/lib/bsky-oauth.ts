@@ -68,9 +68,15 @@ function createHandleResolver(): HandleResolver {
 
 type RetryWait = (ms: number, signal: AbortSignal) => Promise<void>;
 
-function isPlcDidRequest(request: Request): boolean {
-  if (request.method !== "GET") return false;
-  const url = new URL(request.url);
+function isPlcDidRequest(
+  input: string | URL | Request,
+  init?: RequestInit,
+): boolean {
+  const method = (
+    init?.method ?? (input instanceof Request ? input.method : "GET")
+  ).toUpperCase();
+  if (method !== "GET") return false;
+  const url = new URL(input instanceof Request ? input.url : input);
   if (url.origin !== PLC_DIRECTORY_ORIGIN) return false;
   try {
     return decodeURIComponent(url.pathname).startsWith("/did:plc:");
@@ -115,11 +121,14 @@ export function createOAuthFetch(
   wait: RetryWait = waitForRetry,
 ): Fetch {
   return async (input, init) => {
-    const request = new Request(input, init);
-    if (!isPlcDidRequest(request)) {
+    // 判定時は body に触れない。Request を再構築すると元の body が使用済みになり、
+    // clone でも init.body による正規の上書きを妨げるため。
+    if (!isPlcDidRequest(input, init)) {
       return baseFetch.call(globalThis, input, init);
     }
 
+    // 再試行対象は body を持たない PLC GET に限定されている。
+    const request = new Request(input, init);
     for (let attempt = 0; ; attempt += 1) {
       request.signal.throwIfAborted();
       try {

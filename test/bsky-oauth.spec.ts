@@ -214,6 +214,54 @@ describe("PLC DID 解決 fetch", () => {
     expect(wait).not.toHaveBeenCalled();
   });
 
+  it("OAuth の body 付き Request を使用済みにせず1回だけ送信する", async () => {
+    const baseFetch = vi.fn<typeof fetch>(async (input, init) => {
+      const request = new Request(input, init);
+      const form = await request.formData();
+      expect(form.get("grant_type")).toBe("authorization_code");
+      return new Response("ok", { status: 200 });
+    });
+    const wait = vi.fn(async () => undefined);
+    const oauthFetch = createOAuthFetch(baseFetch, wait);
+    const request = new Request("https://bsky.social/oauth/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "grant_type=authorization_code",
+    });
+
+    const response = await oauthFetch(request);
+
+    expect(response.status).toBe(200);
+    expect(baseFetch).toHaveBeenCalledTimes(1);
+    expect(wait).not.toHaveBeenCalled();
+  });
+
+  it("使用済み Request でも init.body の上書きを妨げない", async () => {
+    const baseFetch = vi.fn<typeof fetch>(async (input, init) => {
+      const request = new Request(input, init);
+      const form = await request.formData();
+      expect(form.get("grant_type")).toBe("refresh_token");
+      return new Response("ok", { status: 200 });
+    });
+    const wait = vi.fn(async () => undefined);
+    const oauthFetch = createOAuthFetch(baseFetch, wait);
+    const usedRequest = new Request("https://bsky.social/oauth/token", {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "grant_type=authorization_code",
+    });
+    await usedRequest.formData();
+
+    const response = await oauthFetch(usedRequest, {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: "grant_type=refresh_token",
+    });
+
+    expect(response.status).toBe(200);
+    expect(baseFetch).toHaveBeenCalledTimes(1);
+    expect(wait).not.toHaveBeenCalled();
+  });
+
   it("開始前に abort 済みなら PLC へ送信しない", async () => {
     const controller = new AbortController();
     controller.abort(new DOMException("stopped", "AbortError"));
