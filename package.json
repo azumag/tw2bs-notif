@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
+    "migrate": "wrangler d1 migrations apply tw2bs-notif-db --remote",
+    "deploy:ci": "npm run migrate && wrangler deploy",
     "setup": "node scripts/setup-subscriptions.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",

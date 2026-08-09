@@ -58,6 +58,8 @@ npx wrangler d1 execute tw2bs-notif-db --remote --command \
 
 ```bash
 npm run deploy          # 手動デプロイ(シークレットは .dev.vars から)
+npm run migrate         # D1 マイグレーションを本番へ適用
+npm run deploy:ci       # マイグレーション → デプロイ(Workers Builds が使う)
 npm run setup           # ※旧単一テナント用。現在は UI の連携フロー(/channels)を使用すること
 ```
 
@@ -65,10 +67,21 @@ npm run setup           # ※旧単一テナント用。現在は UI の連携�
 
 GitHub の `main` ブランチへの push で自動デプロイされる(Workers Builds)。
 
-- build: `npm ci` / deploy: `npx wrangler deploy`
+- build: `npm ci` / deploy: **`npm run deploy:ci`**
 - 設定場所: Cloudflare ダッシュボード → Workers & Pages → orbsky → Settings → Builds
 - 本番ブランチ(main)以外への push はプレビュー版(`wrangler versions upload`)が作られる
 - GitHub Actions は typecheck + test のみ(デプロイはしない)
+
+deploy コマンドを `npx wrangler deploy` ではなく `npm run deploy:ci` にしてあるのは、
+**マイグレーションの適用漏れを防ぐため**。Workers Builds は D1 マイグレーションを
+自動では実行しないので、`wrangler deploy` だけだと「新しいコードは動いているが
+テーブルが無い」状態になりうる(実際に `0008_live-streams` で発生した)。
+
+- 適用 → デプロイの順。先にスキーマを用意してから新しいコードを動かす
+- `wrangler d1 migrations apply` は非対話環境では確認プロンプトを飛ばすため、CI でそのまま通る
+- 適用済みのマイグレーションは `d1_migrations` テーブルで管理され、再実行しても二重適用されない
+- カラム削除など後方互換でない変更を入れるときは、この順序だと**先に**スキーマが変わる点に注意
+  (旧コードが動いている間も壊れないように、削除は2段階に分ける)
 
 シークレット(`wrangler secret put`):
 
@@ -80,10 +93,10 @@ GitHub の `main` ブランチへの push で自動デプロイされる(Workers
 | BSKY_HANDLE / BSKY_APP_PASSWORD | Bluesky 資格情報(サービス共通) |
 | ENCRYPTION_KEY | トークン暗号化キー(32バイト hex) |
 
-D1 migration:
+D1 migration(手動で流す場合):
 
 ```bash
-npx wrangler d1 migrations apply tw2bs-notif-db --remote
+npm run migrate
 ```
 
 ## 監視・トラブルシューティング
