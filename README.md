@@ -13,7 +13,8 @@ Twitch 配信開始を EventSub で検知し、Bluesky の streaming status(`app
   - 配信中バッジ + twitch.tv リンクカード(embed)
   - 配信開始投稿(`BSKY_POST_ON_START`: デフォルト ON)
   - 4時間超の配信は cron(30分毎)が record を再書き込みして継続
-- 特典(/support): Fanbox サポートコード or Twitch サブスク(azumagbanjo)で複数チャンネル連携が解放
+- 特典(/support): FANBOX サポートコード or Twitch サブスク(azumagbanjo)で複数チャンネル連携が解放
+  - サポートコードの取得先: [azumagのFANBOX](https://azumag.fanbox.cc/)
 
 ## 開発
 
