@@ -120,6 +120,24 @@ export async function deleteConnection(
   return result.meta.changes > 0;
 }
 
+/**
+ * 自動ポストのON/OFFだけを保存する。
+ * トグルを切り替えた時点で永続化するため、投稿文には触れない。
+ */
+export async function updateConnectionPostOnStart(
+  env: AppEnv,
+  userId: string,
+  connectionId: number,
+  postOnStart: boolean,
+): Promise<boolean> {
+  const result = await env.DB.prepare(
+    `UPDATE connections SET post_on_start = ? WHERE id = ? AND user_id = ?`,
+  )
+    .bind(postOnStart ? 1 : 0, connectionId, userId)
+    .run();
+  return result.meta.changes > 0;
+}
+
 /** 所有者を確認しながらチャネル別の自動ポスト設定を保存する。 */
 export async function updateConnectionPostingSettings(
   env: AppEnv,

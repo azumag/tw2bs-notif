@@ -260,7 +260,13 @@ describe("チャネル連携ページ", () => {
     expect(body).toContain("data-posting-form");
     expect(body).toContain("data-preview-text");
     expect(body).toContain('role="switch"');
-    expect(body).toContain("management-disclosure");
+    expect(body).toContain("management-section");
+    // マルチチャネルとチャネル管理は最初から開いた状態で表示する
+    expect(body).not.toContain("<details class=\"management-disclosure\"");
+    expect(body).not.toContain("<details class=\"channel-actions\"");
+    expect(body).toContain('class="channel-actions"');
+    expect(body).toContain("連携を解除");
+    expect(body).toContain("data-post-on-start-status");
     expect(body).not.toContain('class="progress-strip"');
     expect(body).not.toContain('role="tablist"');
     expect(body).not.toContain('class="channel-tab');
@@ -362,6 +368,92 @@ describe("チャネル連携ページ", () => {
     );
     expect(update.status).toBe(302);
 
+    const row = await env0.DB.prepare(
+      "SELECT post_on_start AS enabled FROM connections WHERE id = ?",
+    )
+      .bind(connectionId)
+      .first<{ enabled: number }>();
+    expect(row?.enabled).toBe(0);
+  });
+
+  it("トグルだけの送信は投稿文を変えずに即時保存され204を返す", async () => {
+    const env0 = makeEnv();
+    const { cookie, csrf } = await loginAs(env0);
+    const inserted = await env0.DB.prepare(
+      `INSERT INTO connections
+         (user_id, twitch_channel_id, twitch_login, twitch_display_name, post_on_start, post_template)
+       VALUES ('12345', '12345', 'azumagbanjo', 'あずまぐ', 0, '元の本文')`,
+    ).run();
+    const connectionId = Number(inserted.meta.last_row_id);
+
+    const on = await fetchAs(
+      env0,
+      new Request("https://example.com/channels/posting", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: new URLSearchParams({
+          csrf,
+          connection_id: String(connectionId),
+          only: "post_on_start",
+          post_on_start: "1",
+        }),
+      }),
+    );
+    expect(on.status).toBe(204);
+    const afterOn = await env0.DB.prepare(
+      `SELECT post_on_start AS enabled, post_template AS postTemplate
+       FROM connections WHERE id = ?`,
+    )
+      .bind(connectionId)
+      .first<{ enabled: number; postTemplate: string }>();
+    expect(afterOn).toEqual({ enabled: 1, postTemplate: "元の本文" });
+
+    const off = await fetchAs(
+      env0,
+      new Request("https://example.com/channels/posting", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: new URLSearchParams({
+          csrf,
+          connection_id: String(connectionId),
+          only: "post_on_start",
+        }),
+      }),
+    );
+    expect(off.status).toBe(204);
+    const afterOff = await env0.DB.prepare(
+      `SELECT post_on_start AS enabled, post_template AS postTemplate
+       FROM connections WHERE id = ?`,
+    )
+      .bind(connectionId)
+      .first<{ enabled: number; postTemplate: string }>();
+    expect(afterOff).toEqual({ enabled: 0, postTemplate: "元の本文" });
+  });
+
+  it("他ユーザーのチャネルはトグルだけの送信でも変更されない", async () => {
+    const env0 = makeEnv();
+    const { cookie, csrf } = await loginAs(env0);
+    const inserted = await env0.DB.prepare(
+      `INSERT INTO connections
+         (user_id, twitch_channel_id, twitch_login, twitch_display_name, post_on_start)
+       VALUES ('other-user', '99999', 'other_channel', '別チャネル', 0)`,
+    ).run();
+    const connectionId = Number(inserted.meta.last_row_id);
+
+    const res = await fetchAs(
+      env0,
+      new Request("https://example.com/channels/posting", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: new URLSearchParams({
+          csrf,
+          connection_id: String(connectionId),
+          only: "post_on_start",
+          post_on_start: "1",
+        }),
+      }),
+    );
+    expect(res.status).toBe(404);
     const row = await env0.DB.prepare(
       "SELECT post_on_start AS enabled FROM connections WHERE id = ?",
     )

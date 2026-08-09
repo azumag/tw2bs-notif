@@ -29,6 +29,7 @@ import {
   insertConnection,
   listConnections,
   updateConnectionPostingSettings,
+  updateConnectionPostOnStart,
 } from "./lib/connections";
 import { clearLiveStatus, getSessionForUser } from "./lib/bluesky";
 import {
@@ -614,11 +615,14 @@ async function handleChannels(
                <span class="eyebrow">チャネル</span>
                <h2 id="channel-heading-${suffix}">${escapeHtml(c.twitchDisplayName)} <small>@${escapeHtml(c.twitchLogin)}</small></h2>
              </div>
-             <label class="switch-line" for="post_on_start_${suffix}">
-               <span>自動ポスト</span>
-               <input id="post_on_start_${suffix}" type="checkbox" role="switch" name="post_on_start" value="1"${c.postOnStart ? " checked" : ""}
-                 data-post-on-start>
-             </label>
+             <div class="switch-group">
+               <label class="switch-line" for="post_on_start_${suffix}">
+                 <span>自動ポスト</span>
+                 <input id="post_on_start_${suffix}" type="checkbox" role="switch" name="post_on_start" value="1"${c.postOnStart ? " checked" : ""}
+                   data-post-on-start>
+               </label>
+               <span class="switch-status" data-post-on-start-status role="status"></span>
+             </div>
            </div>
            <p class="panel-intro">自動ポストをONにすると、配信開始を検知したときにBlueskyへ投稿します。</p>
            <div class="posting-fields"${c.postOnStart ? "" : " hidden"} data-posting-fields>
@@ -641,11 +645,11 @@ async function handleChannels(
            <div class="action-row">
              <button type="submit">変更を保存</button>
            </div>
-           <details class="channel-actions">
-             <summary>このチャネルの連携を管理</summary>
+           <div class="channel-actions">
+             <strong>このチャネルの連携</strong>
              <p>解除すると、配信状態と自動ポストが反映されなくなります。</p>
              <button class="button-danger" type="submit" formaction="${CHANNELS_DISCONNECT_PATH}" formmethod="post" formnovalidate>連携を解除</button>
-           </details>
+           </div>
          </form>
        </section>`;
     })
@@ -716,13 +720,13 @@ async function handleChannels(
     `${header}
      ${startCard}
      ${editor}
-     <details class="management-disclosure">
-       <summary>
-         <span><strong>マルチチャネル</strong><small>通知対象チャネルの追加・管理</small></span>
-       </summary>
+     <section class="management-section">
+       <div class="management-heading">
+         <strong>マルチチャネル</strong><small>通知対象チャネルの追加・管理</small>
+       </div>
        ${multiChannelSettings}
        <p class="help-text">自動ポストのON/OFF、本文、配信タイトル・カテゴリの使用は、すべてのプランで利用できます。</p>
-     </details>`,
+     </section>`,
     { session, mainClass: "channels-page", currentPath: CHANNELS_PATH },
   );
 }
@@ -960,16 +964,18 @@ async function handleSupport(
   const subDisabled = !!userRow?.disabled;
 
   let subStatus: string;
-  let subActions: string;
+  let subPrimaryForm: string;
+  let subDisableForm: string;
   // hasSubResult は null = 未確認/確認失敗、true/false = 確認できたサブスク有無。
   // 表示文言ではなくこの真偽値を判定に使う(文言変更が特典判定に影響しないようにする)。
   let hasSubResult: boolean | null = null;
   if (subDisabled) {
-    subStatus = "無効中";
-    subActions = `<form class="action-row" method="post" action="${SUB_ENABLE_PATH}">
+    subStatus = "判定を無効にしています";
+    subPrimaryForm = `<form method="post" action="${SUB_ENABLE_PATH}">
        <input type="hidden" name="csrf" value="${session.csrf}">
-       <button class="button-secondary" type="submit">サブスク判定を再有効化</button>
+       <button type="submit">サブスク判定を再有効化</button>
      </form>`;
+    subDisableForm = "";
   } else {
     hasSubResult = await hasTwitchSub(env, session.twitchUserId).catch(() => null);
     subStatus =
@@ -978,49 +984,49 @@ async function handleSupport(
         : hasSubResult
           ? "サブスク中"
           : "サブスクなし";
-    subActions = `<form class="action-row" method="post" action="${SUB_CHECK_PATH}">
+    subPrimaryForm = `<form method="post" action="${SUB_CHECK_PATH}">
        <input type="hidden" name="csrf" value="${session.csrf}">
-       <button class="button-secondary" type="submit">サブスク状態を再確認</button>
-     </form>
-     <form class="action-row" method="post" action="${SUB_DISABLE_PATH}">
+       <button type="submit">サブスク状態を確認</button>
+     </form>`;
+    subDisableForm = `<form method="post" action="${SUB_DISABLE_PATH}">
        <input type="hidden" name="csrf" value="${session.csrf}">
        <button class="text-button" type="submit">サブスク判定を無効にする</button>
      </form>`;
   }
   const entitlementActive = Boolean(rows) || hasSubResult === true;
-  const entitlementSource = hasSubResult === true
-    ? "Twitchサブスクで利用中"
-    : rows
-      ? "サポートコードで利用中"
-      : "無料利用";
 
   return htmlPage(
     "orbsky - マルチチャネル有効化",
     `<article class="focused-page support-page">
        <a class="back-link" href="/">トップへ戻る</a>
        <span class="eyebrow">マルチチャネル有効化</span>
-       <h1>マルチチャネル機能</h1>
-       <p class="lead">複数のTwitchチャネルをまとめて連携できるようになる機能です。</p>
+       <div class="page-heading">
+         <div>
+           <h1>マルチチャネル機能</h1>
+           <p>複数のTwitchチャネルをまとめて連携できるようになる機能です。</p>
+         </div>
+         <div class="status-badges">
+           <span class="status-badge ${entitlementActive ? "is-primary" : ""}">${entitlementActive ? "有効" : "無効"}</span>
+         </div>
+       </div>
 
        <section class="focus-card">
          <h2>マルチチャネル機能とは</h2>
          <p>orbskyは無料でTwitchチャネルを1つまで連携できます。マルチチャネル機能を有効化すると、ご自身が管理する複数のTwitchチャネル(サブ垢や別配信チャネルなど)をまとめて連携し、チャネルごとに自動ポストを設定できるようになります。</p>
        </section>
 
-       <section class="focus-card benefit-summary">
-         <div class="connection-state">
-           <div><span>マルチチャネル</span><strong>${entitlementSource}</strong></div>
-           <span class="compact-status ${entitlementActive ? "is-primary" : ""}">${entitlementActive ? "利用中" : "未利用"}</span>
-         </div>
-         <p>${entitlementActive ? "複数のTwitchチャネルを追加できます。" : "無料利用では1チャネルまで連携できます。"}</p>
-         <p class="action-row"><a class="button button-secondary" href="${CHANNELS_PATH}">チャネル設定を開く</a></p>
+       <section class="focus-card">
+         <h2>有効化する方法</h2>
+         <p>次のどちらかで有効化できます。どちらも、有効化すると2つ目以降のTwitchチャネルを追加できるようになります。</p>
+         <h3>1. FANBOXのサポートコード</h3>
+         <p>azumagのFANBOXで支援いただいた方にサポートコードをお渡ししています。支援後、FANBOXのメッセージまたは支援者向け投稿でコードを確認してください。コードは別サービス <a href="${TWICA_URL}" target="_blank" rel="noopener noreferrer">twica</a> と同一のものをご利用いただけます。</p>
+         <p class="action-row"><a class="button button-secondary" href="${FANBOX_URL}" target="_blank" rel="noopener noreferrer">azumagのFANBOXを見る</a></p>
+         <h3>2. Twitchサブスク</h3>
+         <p>作者:あずまぐ(@azumagbanjo)のTwitchチャネルをサブスクライブしている方へのおまけ特典です。サブスクライブ済みであれば、下のボタンで確認するだけで有効化されます。</p>
        </section>
 
-       <span class="section-label">有効化する方法</span>
-
        <section class="focus-card">
-         <h2>サポートコードを入力</h2>
-         <p>別サービス <a href="${TWICA_URL}" target="_blank" rel="noopener noreferrer">twica</a> と同一のものをご利用いただけます。</p>
+         <h2>サポートコードで有効化</h2>
          <form class="support-code-form" method="post" action="${SUPPORT_ACTIVATE_PATH}">
            <input type="hidden" name="csrf" value="${session.csrf}">
            <div class="field">
@@ -1029,26 +1035,11 @@ async function handleSupport(
            </div>
            <button type="submit">有効化</button>
          </form>
-
-         <details class="inline-disclosure">
-           <summary>サポートコードでできること・入手方法</summary>
-           <div class="disclosure-content">
-             <h3>サポートコードでできること</h3>
-             <p>有効化すると、2つ目以降も追加して複数のTwitchチャネルを連携できます。</p>
-             <ul class="plan-list">
-               <li><strong>サポーター:</strong> 複数チャネル連携を利用できます。</li>
-               <li><strong>パトロン:</strong> 複数チャネル連携を利用できます。orbskyでは現在、サポーターと同じ特典内容です。</li>
-             </ul>
-             <h3>FANBOXでサポートコードを受け取る</h3>
-             <p>支援後、FANBOXのメッセージまたは支援者向け投稿でコードを確認してください。</p>
-             <p class="action-row"><a class="button button-secondary" href="${FANBOX_URL}" target="_blank" rel="noopener noreferrer">azumagのFANBOXを見る</a></p>
-           </div>
-         </details>
-
          <details class="inline-disclosure">
            <summary>現在のコード特典</summary>
            <div class="disclosure-content">
              <ul class="plan-list">${rows || "<li>(なし)</li>"}</ul>
+             <p class="help-text">サポーター・パトロンのどちらのコードでも、マルチチャネル機能を利用できます。</p>
              <form method="post" action="${SUPPORT_DEACTIVATE_PATH}">
                <input type="hidden" name="csrf" value="${session.csrf}">
                <button class="button-danger" type="submit">コード特典を解除</button>
@@ -1057,16 +1048,19 @@ async function handleSupport(
          </details>
        </section>
 
-       <details class="focus-card support-subscription">
-         <summary>
-           <span><strong>Twitchサブスク(azumagbanjo)</strong><small>判定状態と設定</small></span>
-           <span class="compact-status ${hasSubResult === true ? "is-success" : ""}">${escapeHtml(subStatus)}</span>
-         </summary>
-         <div class="disclosure-content">
-           <p>作者:あずまぐ(@azumagbanjo)のTwitchチャネルをサブスクライブしている方へのおまけ特典です。</p>
-           <div class="forms-stack">${subActions}</div>
+       <section class="focus-card">
+         <h2>Twitchサブスクで有効化</h2>
+         <p>サブスクライブしてから確認すると、マルチチャネル機能が有効になります。</p>
+         <div class="connection-state is-under-heading">
+           <div><span>Twitchサブスク(azumagbanjo)</span><strong>${escapeHtml(subStatus)}</strong></div>
+           <span class="compact-status ${hasSubResult === true ? "is-success" : ""}">${hasSubResult === true ? "有効" : "未反映"}</span>
          </div>
-       </details>
+         <div class="action-row">
+           ${subPrimaryForm}
+           <a class="button button-secondary" href="${OPERATOR_TWITCH_URL}" target="_blank" rel="noopener noreferrer">azumagbanjoのTwitchチャネルを見る</a>
+         </div>
+         ${subDisableForm}
+       </section>
      </article>`,
     { session, currentPath: SUPPORT_PATH },
   );
@@ -1299,6 +1293,34 @@ async function handleChannelPostingSettings(
   if (!Number.isSafeInteger(connectionId) || connectionId <= 0) {
     return renderInvalidRequest(session);
   }
+
+  // 自動ポストのトグルは切り替えた時点で保存する(投稿文は対象外)。
+  // ページ遷移を伴わない fetch から呼ばれるため、本文なしのステータスだけを返す。
+  if (form?.get("only") === "post_on_start") {
+    try {
+      const updated = await updateConnectionPostOnStart(
+        env,
+        session.twitchUserId,
+        connectionId,
+        form.get("post_on_start") === "1",
+      );
+      if (!updated) {
+        return new Response(null, { status: 404 });
+      }
+      logInfo("settings", "toggled channel post_on_start", {
+        userId: session.twitchUserId,
+        connectionId,
+      });
+      return new Response(null, { status: 204 });
+    } catch (err) {
+      logError("settings", "channel post_on_start toggle failed", err, {
+        userId: session.twitchUserId,
+        connectionId,
+      });
+      return new Response(null, { status: 500 });
+    }
+  }
+
   const templateError = validatePostTemplate(postTemplate);
   if (templateError) {
     return renderMessage({
