@@ -30,12 +30,14 @@ import { decryptSecret, encryptSecret } from "./crypto";
 
 /**
  * Bluesky OAuth(ユーザー別)クライアント。
- * 細粒度スコープ(PoC 確認済み)で、status と feed.post のみの権限を発行する。
+ * 細粒度スコープ(PoC 確認済み)で、status と feed.post の書き込み権限を発行する。
+ * blob:image/* は embed.external の thumb(配信サムネイル)を uploadBlob するために
+ * 必要(blob パーミッションは permission set に含められず、直接リクエストが必須)。
  * セッションは D1(暗号化)に永続化し、DPoP 鍵は JWK として保存・復元する。
  */
 
 export const BSKY_SCOPES =
-  "atproto repo:app.bsky.actor.status repo:app.bsky.feed.post";
+  "atproto repo:app.bsky.actor.status repo:app.bsky.feed.post blob:image/*";
 
 const CLIENT_ID = "https://orbsky.bluemoon.works/oauth-client-metadata.json";
 const REDIRECT_URI = "https://orbsky.bluemoon.works/auth/bluesky/callback";

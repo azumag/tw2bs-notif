@@ -40,8 +40,8 @@
 
 ## SaaS 設計への反映
 
-- **users テーブルに保存するのは OAuth session(refresh token + DPoP 鍵)**。漏れても status/post 書き込みに限定される
-- 要求スコープ: `atproto repo:app.bsky.actor.status repo:app.bsky.feed.post`(自動ポスト有効ユーザーは post 込み、バッジのみは status のみ等、ユーザーごとに切替可能)
+- **users テーブルに保存するのは OAuth session(refresh token + DPoP 鍵)**。漏れても status/post 書き込み + 画像アップロードに限定される
+- 要求スコープ: `atproto repo:app.bsky.actor.status repo:app.bsky.feed.post blob:image/*`。`blob:image/*` は配信サムネイルの uploadBlob に必要(blob パーミッションは permission set に含められず直接リクエストが必須。2026-08-10 追加)
 - クライアントメタデータは SaaS の公開 URL(`https://<domain>/oauth-client-metadata.json`)で公開
 - トークンリフレッシュは @atproto/oauth-client-node の `restore()` で管理(セッションは D1 に永続化)
 

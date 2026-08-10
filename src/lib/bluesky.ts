@@ -4,7 +4,7 @@ import { detectFacets } from "./facets";
 
 /**
  * Bluesky 書き込み(ユーザー別 OAuth セッション経由)。
- * 細粒度スコープ(PoC 確認済み): app.bsky.actor.status + app.bsky.feed.post のみ。
+ * 細粒度スコープ(PoC 確認済み): app.bsky.actor.status + app.bsky.feed.post + blob:image/*(thumb 用)。
  */
 
 export const STATUS_COLLECTION = "app.bsky.actor.status";
