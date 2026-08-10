@@ -1250,6 +1250,18 @@ async function handleBskyCallback(
     return new Response(null, { status: 302, headers: { Location: SETTINGS_PATH } });
   } catch (err) {
     logError("bsky", "oauth callback failed", err, { userId: session.twitchUserId });
+    try {
+      await env.STATE.put(
+        "debug:bsky_auth_error",
+        JSON.stringify({
+          at: new Date().toISOString(),
+          name: err instanceof Error ? err.name : String(err),
+          message: err instanceof Error ? err.message : String(err),
+        }),
+      );
+    } catch {
+      // 診断用のため失敗は無視
+    }
     return renderMessage({
       title: "エラー",
       heading: "Bluesky連携に失敗しました",

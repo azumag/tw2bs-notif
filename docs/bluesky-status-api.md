@@ -33,7 +33,7 @@ rkey:       self (固定)
       "uri": "https://www.twitch.tv/<channel>", // 必須
       "title": "配信タイトル",                    // 任意
       "description": "",                          // 任意
-      "thumb": { "$type": "blob", ... }           // 任意(画像アップロードが必要なため省略可)
+      "thumb": { "$type": "blob", ... }           // 任意(Helix thumbnail_url を uploadBlob で付与)
     }
   }
 }
@@ -79,7 +79,7 @@ await agent.com.atproto.repo.putRecord({
 
 1. **4時間クランプへの対応が必須**: 配信中に record を再書き込み(createdAt 更新)して失効をリセットする。配信開始時にキューへ延長メッセージを遅延投入し(3時間 + 0〜30分のゆらぎ)、届いた時点で Helix で配信中か確認して再書き込みする。定期ポーリングは行わない(処理量が同時配信数に比例するようにするため)。
 2. durationMinutes は大きめ(720 等)に設定する(クランプされるが、安全側)。
-3. embed.thumb は省略可能(画像アップロードの複雑さを避ける)。
+3. embed.thumb は **Helix `/streams` の `thumbnail_url` を `com.atproto.repo.uploadBlob` でアップロードして付与する**(2026-08-10 実装)。省略すると Bluesky 側が `og:image` を解決するが、twitch.tv はクローラーにプロフィール画像しか返さずライブサムネイルが表示されないため。画像取得・アップロードに失敗した場合は thumb なしで続行(best effort)。
 4. 書き込みは swapRecord + リトライの公式パターンに従う。
 5. 削除は必ず stream.offline 時に実施(失効放置でも4時間で消えるが、即時解除のため)。
 

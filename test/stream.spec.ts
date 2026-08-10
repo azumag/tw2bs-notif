@@ -97,6 +97,8 @@ const streamState = {
   title: "テスト配信",
   gameName: "Music",
   userLogin: "cool_user",
+  thumbnailUrl:
+    "https://static-cdn.jtvnw.net/previews-ttv/live_user_cool_user-{width}x{height}.jpg",
 };
 
 beforeAll(async () => {
@@ -148,6 +150,8 @@ describe("processStreamEvent", () => {
     expect(blueskyModule.setLiveStatus).toHaveBeenCalledWith(expect.anything(), {
       uri: "https://www.twitch.tv/cool_user",
       title: "テスト配信",
+      thumbnailUrl:
+        "https://static-cdn.jtvnw.net/previews-ttv/live_user_cool_user-640x360.jpg",
     });
     expect(await liveRecord()).toEqual({ streamId: "stream-1" });
     // 4時間の失効前に延長する予約が入る(山をならすためのゆらぎ付き)
@@ -190,6 +194,7 @@ describe("processStreamEvent", () => {
     expect(blueskyModule.setLiveStatus).toHaveBeenCalledWith(expect.anything(), {
       uri: "https://www.twitch.tv/cool_user",
       title: undefined,
+      thumbnailUrl: undefined,
     });
   });
 
@@ -206,6 +211,8 @@ describe("processStreamEvent", () => {
         uri: "https://www.twitch.tv/cool_user",
         title: "テスト配信",
         text: "配信開始しました\nテスト配信\nMusic",
+        thumbnailUrl:
+          "https://static-cdn.jtvnw.net/previews-ttv/live_user_cool_user-640x360.jpg",
       },
     );
   });
@@ -273,6 +280,7 @@ describe("processStreamEvent", () => {
     expect(blueskyModule.setLiveStatus).toHaveBeenCalledWith(expect.anything(), {
       uri: "https://www.twitch.tv/cool_user",
       title: "週末の雑談配信",
+      thumbnailUrl: undefined,
     });
   });
 
@@ -397,6 +405,13 @@ describe("processStreamRenewals", () => {
     await processStreamRenewals(e, [renewal]);
 
     expect(blueskyModule.setLiveStatus).toHaveBeenCalledTimes(1);
+    // 延長時もバッチ取得済みの配信情報からサムネイルを引き継ぐ
+    expect(blueskyModule.setLiveStatus).toHaveBeenCalledWith(expect.anything(), {
+      uri: "https://www.twitch.tv/cool_user",
+      title: "テスト配信",
+      thumbnailUrl:
+        "https://static-cdn.jtvnw.net/previews-ttv/live_user_cool_user-640x360.jpg",
+    });
     // 延長では通常ポストを作らない
     expect(blueskyModule.createStreamPost).not.toHaveBeenCalled();
     expect(queued).toHaveLength(1);

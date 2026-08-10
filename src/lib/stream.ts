@@ -58,6 +58,17 @@ function twitchUrl(login?: string): string {
   return login ? `https://www.twitch.tv/${login}` : "https://www.twitch.tv/";
 }
 
+// Twitch の thumbnail_url は {width}x{height} プレースホルダを含むため、実寸に置換する
+const THUMB_WIDTH = 640;
+const THUMB_HEIGHT = 360;
+
+function thumbnailUrl(stream: StreamState | null): string | undefined {
+  if (!stream?.thumbnailUrl) return undefined;
+  return stream.thumbnailUrl
+    .replace("{width}", String(THUMB_WIDTH))
+    .replace("{height}", String(THUMB_HEIGHT));
+}
+
 function renewDelaySeconds(): number {
   return RENEW_BASE_SECONDS + Math.floor(Math.random() * RENEW_JITTER_SECONDS);
 }
@@ -130,7 +141,11 @@ async function applyLiveStatus(
   for (const connection of connections) {
     const login =
       input.broadcasterUserLogin ?? stream?.userLogin ?? connection.twitchLogin;
-    const statusInput = { uri: twitchUrl(login), title };
+    const statusInput = {
+      uri: twitchUrl(login),
+      title,
+      thumbnailUrl: thumbnailUrl(stream),
+    };
     const session = await getSessionForUser(env, connection.userId);
     if (!session) {
       logInfo(C, "user has no bsky session, skipped", {

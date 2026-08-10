@@ -118,6 +118,8 @@ export interface StreamState {
   title: string;
   gameName: string;
   userLogin: string;
+  /** サムネイル URL({width}x{height} プレースホルダを含む) */
+  thumbnailUrl: string;
 }
 
 export interface TwitchChannelInfo {
@@ -228,6 +230,7 @@ export async function getStreamStatesBatch(
         title: string;
         game_name: string;
         user_login: string;
+        thumbnail_url: string;
       }>;
     };
     const found = new Set<string>();
@@ -239,6 +242,7 @@ export async function getStreamStatesBatch(
         title: stream.title,
         gameName: stream.game_name,
         userLogin: stream.user_login,
+        thumbnailUrl: stream.thumbnail_url,
       });
       found.add(stream.user_id);
     }

@@ -25,8 +25,16 @@ export interface LiveStatusRecord {
       uri: string;
       title: string;
       description: string;
+      thumb?: ThumbRef;
     };
   };
+}
+
+export interface ThumbRef {
+  $type: "blob";
+  ref: { $link: string };
+  mimeType: string;
+  size: number;
 }
 
 export class BlueskyError extends Error {
@@ -88,25 +96,87 @@ async function getStatusRecordCid(
   }
 }
 
+/**
+ * サムネイル画像をアップロードして blob 参照を返す。
+ * 取得・アップロードに失敗した場合は null を返し、thumb なしで続行する(best effort)。
+ */
+async function uploadThumb(
+  session: BskySessionLike,
+  imageUrl: string,
+): Promise<ThumbRef | null> {
+  try {
+    const res = await fetch(imageUrl, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) {
+      return null;
+    }
+    const body = await res.arrayBuffer();
+    // uploadBlob の上限(1MB)を超える画像はアップロードしない
+    if (body.byteLength > 1_000_000) {
+      return null;
+    }
+    const data = (await xrpc(session, "/xrpc/com.atproto.repo.uploadBlob", {
+      method: "POST",
+      headers: {
+        "Content-Type":
+          res.headers.get("Content-Type") ?? "image/jpeg",
+      },
+      body,
+    })) as { blob?: ThumbRef };
+    // PDS が不正な blob(欠損フィールド)を返した場合は thumb なしで続行する
+    const blob = data.blob;
+    if (
+      !blob ||
+      blob.$type !== "blob" ||
+      !blob.ref?.$link ||
+      !blob.mimeType ||
+      typeof blob.size !== "number"
+    ) {
+      return null;
+    }
+    return blob;
+  } catch {
+    return null;
+  }
+}
+
+export interface ExternalEmbedInput {
+  uri: string;
+  title?: string;
+  description?: string;
+  thumbnailUrl?: string;
+}
+
+/** embed.external を組み立てる(thumb は取得できた場合のみ付与) */
+async function buildExternal(
+  session: BskySessionLike,
+  input: ExternalEmbedInput,
+): Promise<LiveStatusRecord["embed"]> {
+  const external: LiveStatusRecord["embed"]["external"] & { thumb?: ThumbRef } = {
+    $type: "app.bsky.embed.external#external",
+    uri: input.uri,
+    // PDS は title を必須として検証する(空文字は許容)
+    title: input.title ?? "",
+    description: input.description ?? "",
+  };
+  if (input.thumbnailUrl) {
+    const thumb = await uploadThumb(session, input.thumbnailUrl);
+    if (thumb) {
+      external.thumb = thumb;
+    }
+  }
+  return { $type: "app.bsky.embed.external", external };
+}
+
 export async function setLiveStatus(
   session: BskySessionLike,
-  input: { uri: string; title?: string; description?: string },
+  input: ExternalEmbedInput,
 ): Promise<void> {
   const record: LiveStatusRecord = {
     $type: "app.bsky.actor.status",
     status: "app.bsky.actor.status#live",
     createdAt: new Date().toISOString(),
     durationMinutes: DURATION_MINUTES,
-    embed: {
-      $type: "app.bsky.embed.external",
-      external: {
-        $type: "app.bsky.embed.external#external",
-        uri: input.uri,
-        // PDS は title を必須として検証する(空文字は許容)
-        title: input.title ?? "",
-        description: input.description ?? "",
-      },
-    },
+    embed: await buildExternal(session, input),
   };
 
   for (let attempt = 0; attempt < MAX_SWAP_RETRIES; attempt++) {
@@ -161,7 +231,7 @@ export async function statusRecordExists(
 
 export async function createStreamPost(
   session: BskySessionLike,
-  input: { uri: string; title?: string; description?: string; text?: string },
+  input: ExternalEmbedInput & { text?: string },
 ): Promise<void> {
   const text =
     input.text ?? `配信開始しました${input.title ? `: ${input.title}` : ""}`;
@@ -179,15 +249,7 @@ export async function createStreamPost(
         ...(facets.length ? { facets } : {}),
         createdAt: new Date().toISOString(),
         langs: ["ja"],
-        embed: {
-          $type: "app.bsky.embed.external",
-          external: {
-            $type: "app.bsky.embed.external#external",
-            uri: input.uri,
-            title: input.title ?? "",
-            description: input.description ?? "",
-          },
-        },
+        embed: await buildExternal(session, input),
       },
     }),
   });

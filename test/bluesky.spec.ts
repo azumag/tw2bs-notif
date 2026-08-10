@@ -47,6 +47,31 @@ function makeSession(): BskySessionLike {
 
 const statusRecordCid = "bafyrei0000000000000000000000000000000000000000000";
 
+const thumbBlob = {
+  $type: "blob",
+  ref: { $link: "bafkrei-thumb" },
+  mimeType: "image/jpeg",
+  size: 15491,
+};
+
+const thumbUrl =
+  "https://static-cdn.jtvnw.net/previews-ttv/live_user_cool_user-640x360.jpg";
+
+function thumbResponse(): Response {
+  return new Response(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]), {
+    status: 200,
+    headers: { "Content-Type": "image/jpeg" },
+  });
+}
+
+function uploadBlobRoute(): RouteHandler {
+  return async (_url, rinit) => {
+    expect(rinit?.method).toBe("POST");
+    expect(rinit?.body).toBeInstanceOf(ArrayBuffer);
+    return jsonResponse({ blob: thumbBlob });
+  };
+}
+
 afterEach(() => {
   vi.unstubAllGlobals();
 });
@@ -155,6 +180,151 @@ describe("setLiveStatus", () => {
     await expect(
       setLiveStatus(makeSession(), { uri: "https://www.twitch.tv/example" }),
     ).rejects.toBeInstanceOf(BlueskyError);
+  });
+
+  it("uploads the thumbnail and includes thumb in the embed", async () => {
+    let recordBody: Record<string, unknown> | undefined;
+    mockFetch({
+      "pds.test/xrpc/com.atproto.repo.getRecord": async () =>
+        jsonResponse(
+          { error: "RecordNotFound", message: "Could not locate record" },
+          400,
+        ),
+      "pds.test/xrpc/com.atproto.repo.uploadBlob": uploadBlobRoute(),
+      "pds.test/xrpc/com.atproto.repo.putRecord": async (_url, init) => {
+        recordBody = JSON.parse(String(init?.body));
+        return jsonResponse({ uri: "at://.../self", cid: "new-cid" });
+      },
+      [thumbUrl]: thumbResponse,
+    });
+
+    await setLiveStatus(makeSession(), {
+      uri: "https://www.twitch.tv/example",
+      thumbnailUrl: thumbUrl,
+    });
+
+    const external = (recordBody as {
+      record: { embed: { external: { thumb: unknown } } };
+    }).record.embed.external;
+    expect(external.thumb).toEqual(thumbBlob);
+  });
+
+  it("uploads the thumbnail only once across InvalidSwap retries", async () => {
+    let getRecordCalls = 0;
+    let uploadBlobCalls = 0;
+    mockFetch({
+      "pds.test/xrpc/com.atproto.repo.getRecord": async () => {
+        getRecordCalls++;
+        return jsonResponse({ uri: "at://.../self", cid: `cid-${getRecordCalls}`, value: {} });
+      },
+      "pds.test/xrpc/com.atproto.repo.uploadBlob": async (_url, init) => {
+        uploadBlobCalls++;
+        expect(init?.body).toBeInstanceOf(ArrayBuffer);
+        return jsonResponse({ blob: thumbBlob });
+      },
+      "pds.test/xrpc/com.atproto.repo.putRecord": async () => {
+        if (getRecordCalls === 1) {
+          return jsonResponse(
+            { error: "InvalidSwap", message: "Conflict" },
+            409,
+          );
+        }
+        return jsonResponse({ uri: "at://.../self", cid: "new-cid" });
+      },
+      [thumbUrl]: thumbResponse,
+    });
+
+    await setLiveStatus(makeSession(), {
+      uri: "https://www.twitch.tv/example",
+      thumbnailUrl: thumbUrl,
+    });
+
+    expect(getRecordCalls).toBe(2);
+    expect(uploadBlobCalls).toBe(1);
+  });
+
+  it("omits thumb when the thumbnail fetch fails", async () => {
+    let recordBody: Record<string, unknown> | undefined;
+    mockFetch({
+      "pds.test/xrpc/com.atproto.repo.getRecord": async () =>
+        jsonResponse(
+          { error: "RecordNotFound", message: "Could not locate record" },
+          400,
+        ),
+      "pds.test/xrpc/com.atproto.repo.putRecord": async (_url, init) => {
+        recordBody = JSON.parse(String(init?.body));
+        return jsonResponse({ uri: "at://.../self", cid: "new-cid" });
+      },
+      [thumbUrl]: async () => new Response("nope", { status: 404 }),
+    });
+
+    await setLiveStatus(makeSession(), {
+      uri: "https://www.twitch.tv/example",
+      thumbnailUrl: thumbUrl,
+    });
+
+    const external = (recordBody as {
+      record: { embed: { external: { thumb?: unknown } } };
+    }).record.embed.external;
+    expect(external.thumb).toBeUndefined();
+  });
+
+  it("omits thumb when the blob upload fails", async () => {
+    let recordBody: Record<string, unknown> | undefined;
+    mockFetch({
+      "pds.test/xrpc/com.atproto.repo.getRecord": async () =>
+        jsonResponse(
+          { error: "RecordNotFound", message: "Could not locate record" },
+          400,
+        ),
+      "pds.test/xrpc/com.atproto.repo.uploadBlob": async () =>
+        jsonResponse({ error: "InternalServerError", message: "boom" }, 500),
+      "pds.test/xrpc/com.atproto.repo.putRecord": async (_url, init) => {
+        recordBody = JSON.parse(String(init?.body));
+        return jsonResponse({ uri: "at://.../self", cid: "new-cid" });
+      },
+      [thumbUrl]: thumbResponse,
+    });
+
+    await setLiveStatus(makeSession(), {
+      uri: "https://www.twitch.tv/example",
+      thumbnailUrl: thumbUrl,
+    });
+
+    const external = (recordBody as {
+      record: { embed: { external: { thumb?: unknown } } };
+    }).record.embed.external;
+    expect(external.thumb).toBeUndefined();
+  });
+
+  it("omits thumb when the PDS returns a malformed blob", async () => {
+    let recordBody: Record<string, unknown> | undefined;
+    mockFetch({
+      "pds.test/xrpc/com.atproto.repo.getRecord": async () =>
+        jsonResponse(
+          { error: "RecordNotFound", message: "Could not locate record" },
+          400,
+        ),
+      "pds.test/xrpc/com.atproto.repo.uploadBlob": async () =>
+        jsonResponse({
+          blob: { $type: "blob", ref: {}, mimeType: "", size: "oops" },
+        }),
+      "pds.test/xrpc/com.atproto.repo.putRecord": async (_url, init) => {
+        recordBody = JSON.parse(String(init?.body));
+        return jsonResponse({ uri: "at://.../self", cid: "new-cid" });
+      },
+      [thumbUrl]: thumbResponse,
+    });
+
+    await setLiveStatus(makeSession(), {
+      uri: "https://www.twitch.tv/example",
+      thumbnailUrl: thumbUrl,
+    });
+
+    const external = (recordBody as {
+      record: { embed: { external: { thumb?: unknown } } };
+    }).record.embed.external;
+    expect(external.thumb).toBeUndefined();
   });
 });
 
@@ -290,6 +460,52 @@ describe("createStreamPost", () => {
 
     const record = postedBody?.record as { text: string };
     expect(record.text).toBe("あずまぐが配信を開始しました！");
+  });
+
+  it("uploads the thumbnail and includes thumb in the post embed", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    mockFetch({
+      "pds.test/xrpc/com.atproto.repo.uploadBlob": uploadBlobRoute(),
+      "pds.test/xrpc/com.atproto.repo.createRecord": async (_url, init) => {
+        postedBody = JSON.parse(String(init?.body));
+        return jsonResponse({ uri: "at://...", cid: "post-cid" });
+      },
+      [thumbUrl]: thumbResponse,
+    });
+
+    await createStreamPost(makeSession(), {
+      uri: "https://www.twitch.tv/azumagbanjo",
+      title: "テスト配信",
+      thumbnailUrl: thumbUrl,
+    });
+
+    const external = (postedBody?.record as {
+      embed: { external: { thumb: unknown } };
+    }).embed.external;
+    expect(external.thumb).toEqual(thumbBlob);
+  });
+
+  it("omits thumb when the blob upload fails in the post", async () => {
+    let postedBody: Record<string, unknown> | undefined;
+    mockFetch({
+      "pds.test/xrpc/com.atproto.repo.uploadBlob": async () =>
+        jsonResponse({ error: "InternalServerError", message: "boom" }, 500),
+      "pds.test/xrpc/com.atproto.repo.createRecord": async (_url, init) => {
+        postedBody = JSON.parse(String(init?.body));
+        return jsonResponse({ uri: "at://...", cid: "post-cid" });
+      },
+      [thumbUrl]: thumbResponse,
+    });
+
+    await createStreamPost(makeSession(), {
+      uri: "https://www.twitch.tv/azumagbanjo",
+      thumbnailUrl: thumbUrl,
+    });
+
+    const external = (postedBody?.record as {
+      embed: { external: { thumb?: unknown } };
+    }).embed.external;
+    expect(external.thumb).toBeUndefined();
   });
 
   it("propagates API errors", async () => {

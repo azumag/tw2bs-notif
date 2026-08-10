@@ -324,6 +324,8 @@ describe("getStreamState", () => {
               viewer_count: 3,
               started_at: "2026-08-07T00:00:00Z",
               language: "ja",
+              thumbnail_url:
+                "https://static-cdn.jtvnw.net/previews-ttv/live_user_cool_user-{width}x{height}.jpg",
             },
           ],
         });
@@ -337,6 +339,8 @@ describe("getStreamState", () => {
       title: "テスト配信",
       gameName: "Music",
       userLogin: "cool_user",
+      thumbnailUrl:
+        "https://static-cdn.jtvnw.net/previews-ttv/live_user_cool_user-{width}x{height}.jpg",
     });
   });
 
@@ -362,6 +366,8 @@ describe("getStreamState", () => {
               game_name: "Just Chatting",
               title: "雑談中",
               started_at: "2026-08-07T01:00:00Z",
+              thumbnail_url:
+                "https://static-cdn.jtvnw.net/previews-ttv/live_user_second_user-{width}x{height}.jpg",
             },
           ],
         }),
@@ -376,6 +382,8 @@ describe("getStreamState", () => {
       title: "雑談中",
       gameName: "Just Chatting",
       userLogin: "second_user",
+      thumbnailUrl:
+        "https://static-cdn.jtvnw.net/previews-ttv/live_user_second_user-{width}x{height}.jpg",
     });
   });
 });
