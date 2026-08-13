@@ -99,15 +99,22 @@ describe("tw2bs-notif worker", () => {
     expect(body).toContain("logo-swatch-dark");
     expect(body).toContain("ライトテーマ・標準");
     expect(body).toContain("ダークテーマ・配信中(ライブ)");
-    // ダーク側のロックアップだけがLIVEバッジ(brand-live)を持つ。
-    expect(body.match(/class="brand-orb brand-live"/g)?.length).toBe(1);
-    // ヘッダー・フッター・ライト用・ダーク用の4つのエンブレムがすべて一意なIDを持つ。
+    expect(body).toContain("配信中・ヘッダー実寸");
+    // 配信中の見本2つ(ピル型・ドット型)だけがバッジ(brand-live)を持ち、
+    // 標準の見本とヘッダー・フッター(未ログイン)には付かない。
+    expect(body.match(/class="brand-orb brand-live"/g)?.length).toBe(2);
+    // 大きい方だけが「LIVE」の文字入りピル、小さい方はドットに切り替わる。
+    expect(body.match(/>LIVE</g)?.length).toBe(1);
+    expect(body.match(/class="brand-live-halo"/g)?.length).toBe(1);
+    // ヘッダー・フッター・見本3つのエンブレムがすべて一意なIDを持つ。
     expect(body).toContain('id="orb-ring-h"');
     expect(body).toContain('id="orb-ring-f"');
     expect(body).toContain('id="orb-ring-logo-a"');
     expect(body).toContain('id="orb-ring-logo-b"');
-    // LIVEバッジのグラデーションもダーク側だけに存在する。
+    expect(body).toContain('id="orb-ring-logo-c"');
+    // バッジのグラデーションは配信中の見本にだけ存在する。
     expect(body).toContain('id="orb-live-logo-b"');
+    expect(body).toContain('id="orb-live-logo-c"');
     expect(body).not.toContain('id="orb-live-logo-a"');
   });
 

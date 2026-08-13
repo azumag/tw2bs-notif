@@ -72,6 +72,27 @@ export async function markStreamOffline(
   return result.meta.changes > 0;
 }
 
+/**
+ * ユーザーの連携チャネルのうち、いずれかが配信中かを返す。
+ * ヘッダー・フッターのロゴにLIVEバッジを出すかの判定に使う。
+ * 全ページで引かれるため、件数は数えず存在確認だけに留める。
+ */
+export async function hasLiveConnection(
+  env: AppEnv,
+  twitchUserId: string,
+): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT 1 AS live
+     FROM live_streams
+     JOIN connections ON connections.twitch_channel_id = live_streams.twitch_channel_id
+     WHERE connections.user_id = ?
+     LIMIT 1`,
+  )
+    .bind(twitchUserId)
+    .first<{ live: number }>();
+  return row !== null;
+}
+
 /** バッジを延長したことを記録する(運用時の確認用)。 */
 export async function touchLiveStream(
   env: AppEnv,
