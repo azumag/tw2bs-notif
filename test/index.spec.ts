@@ -32,6 +32,20 @@ describe("tw2bs-notif worker", () => {
     expect(body).toContain("prefers-color-scheme: dark");
   });
 
+  it("ヘッダー・フッターにブランドロゴ(丸いエンブレム+rbsky)が表示される", async () => {
+    const response = await exports.default.fetch("https://example.com/");
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    // ヘッダーとフッターで1回ずつ描画され、グラデーションIDが衝突しない。
+    expect(body.match(/class="brand-orb"/g)?.length).toBe(2);
+    expect(body).toContain('id="orb-g-h"');
+    expect(body).toContain('id="orb-g-f"');
+    expect(body).toContain('<span class="brand-word">rbsky</span>');
+    expect(body).toContain('aria-label="orbsky トップ"');
+    expect(body).toContain('rel="icon"');
+    expect(body).toContain('href="/logo"');
+  });
+
   it("ログイン前でも機能概要・使い方ページを読める", async () => {
     const response = await exports.default.fetch("https://example.com/guide");
     expect(response.status).toBe(200);
@@ -74,6 +88,24 @@ describe("tw2bs-notif worker", () => {
     expect(body).toContain("https://www.twitch.tv/azumagbanjo");
     expect(body).toContain("https://github.com/azumag");
     expect(body).toContain('href="https://azumag.fanbox.cc/"');
+  });
+
+  it("ログイン前でもロゴページを読め、ライト標準・ダークLIVEの両ロゴが表示される", async () => {
+    const response = await exports.default.fetch("https://example.com/logo");
+    expect(response.status).toBe(200);
+    const body = await response.text();
+    expect(body).toContain("<h1>ロゴ</h1>");
+    expect(body).toContain("logo-swatch-light");
+    expect(body).toContain("logo-swatch-dark");
+    expect(body).toContain("ライトテーマ・標準");
+    expect(body).toContain("ダークテーマ・配信中(LIVE)");
+    // ダーク側のロックアップだけがLIVEバッジ(brand-live)を持つ。
+    expect(body.match(/class="brand-orb brand-live"/g)?.length).toBe(1);
+    // ヘッダー・フッター・ライト用・ダーク用の4つのエンブレムがすべて一意なIDを持つ。
+    expect(body).toContain('id="orb-g-h"');
+    expect(body).toContain('id="orb-g-f"');
+    expect(body).toContain('id="orb-g-logo-a"');
+    expect(body).toContain('id="orb-g-logo-b"');
   });
 
   it("can read and write KV values", async () => {

@@ -407,6 +407,9 @@ pre code { padding: 0; background: transparent; }
 }
 
 .brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34em;
   color: var(--text-strong);
   font-size: clamp(1.35rem, 2vw, 1.65rem);
   font-weight: 800;
@@ -415,6 +418,33 @@ pre code { padding: 0; background: transparent; }
 }
 
 .brand:hover { color: var(--primary); }
+
+.brand-orb {
+  display: block;
+  flex: 0 0 auto;
+  width: 1.3em;
+  height: 1.3em;
+}
+
+:root[data-theme="dark"] .brand-orb {
+  filter: drop-shadow(0 0 5px rgba(90, 140, 255, 0.45));
+}
+
+.brand-live-pulse {
+  animation: brand-live-pulse 2.4s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@keyframes brand-live-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.62; }
+}
+
+.brand-word { line-height: 1; }
+
+.brand-sm { gap: 0.28em; font-size: 1.05rem; }
+
+.brand-huge { gap: 0.26em; font-size: clamp(2rem, 9vw, 5rem); }
 
 .header-nav {
   display: flex;
@@ -480,6 +510,9 @@ pre code { padding: 0; background: transparent; }
 .footer-nav { display: flex; flex-wrap: wrap; gap: 1rem; }
 .footer-nav a { color: var(--muted-strong); text-decoration: none; }
 .footer-nav a:hover { color: var(--primary); }
+
+.footer-brand { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; }
+.footer-tagline { color: var(--muted); }
 
 .eyebrow {
   display: block;
@@ -977,6 +1010,34 @@ pre code { padding: 0; background: transparent; }
 
 .content-card h2 { border: 0; margin-top: 0; padding-top: 0; }
 
+.logo-figure { margin: 0 0 2rem; }
+.logo-caption {
+  margin: 0 0 0.6rem;
+  color: var(--muted-strong);
+  font-size: 0.82rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+}
+
+.logo-swatch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 18px;
+  padding: 4.5rem 2rem;
+}
+
+.logo-swatch-light { border: 1px solid var(--border); background: #f8fafc; }
+.logo-swatch-light .brand { color: #0f1424; }
+.logo-swatch-dark { background: #071426; }
+.logo-swatch-dark .brand { color: #fff; }
+.logo-swatch-dark .brand-orb { filter: drop-shadow(0 0 8px rgba(90, 140, 255, 0.5)); }
+
+.logo-specs { display: grid; gap: 0.55rem; margin: 1.5rem 0 0; padding: 0; }
+.logo-specs > div { display: flex; gap: 0.9rem; border-bottom: 1px solid var(--border); padding-bottom: 0.55rem; }
+.logo-specs dt { flex: 0 0 150px; margin: 0; color: var(--muted); font-size: 0.84rem; font-weight: 700; }
+.logo-specs dd { flex: 1; margin: 0; color: var(--text); font-size: 0.84rem; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
 .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin: 1.5rem 0; }
 .feature-item { border-top: 3px solid var(--primary); background: var(--surface); padding: 1.15rem 0.2rem 0; }
 .feature-item strong { display: block; color: var(--text-strong); }
@@ -1147,11 +1208,15 @@ tr:last-child td { border-bottom: 0; }
   .dashboard-footer { align-items: flex-start; flex-direction: column; }
   .hero-actions { flex-direction: column; align-items: stretch; }
   .hero-actions > * { width: 100%; }
+  .logo-swatch { padding: 3rem 1.25rem; }
+  .logo-specs > div { flex-direction: column; gap: 0.15rem; }
+  .logo-specs dt { flex-basis: auto; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; }
+  .brand-live-pulse { animation: none; }
 }
 `;
 
@@ -1161,6 +1226,67 @@ function escapeAttribute(value: string): string {
     .replaceAll('"', "&quot;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
+}
+
+/**
+ * ブランドエンブレム(ワードマークの「O」の代わりとなる丸いアイコン)のインライン
+ * SVGを描く。青いグラデーションの円に、翼をかたどった4弁のシンボルを重ねる
+ * ——実在のBlueskyロゴのトレースではなく、あくまでオリジナルの意匠。
+ *
+ * ヘッダー・フッター・/logo ページなど同じレスポンス内で複数回描画されるため、
+ * グラデーション/フィルターのIDが衝突しないよう呼び出しごとに一意な uid を渡す。
+ */
+function brandOrbSvg(uid: string, opts: { live?: boolean } = {}): string {
+  const live = opts.live ?? false;
+  const gradId = `orb-g-${uid}`;
+  const hlId = `orb-hl-${uid}`;
+  const shadowId = `orb-sh-${uid}`;
+  const liveBadge = live
+    ? `<g filter="url(#${shadowId})">
+        <circle cx="77" cy="77" r="15.5" fill="#fff"/>
+        <circle class="brand-live-pulse" cx="77" cy="77" r="12.5" fill="#ff3b30"/>
+        <circle cx="77" cy="77" r="4.4" fill="#fff"/>
+      </g>`
+    : "";
+  return `<svg class="brand-orb${live ? " brand-live" : ""}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="${gradId}" x1="12%" y1="8%" x2="88%" y2="92%">
+        <stop offset="0%" stop-color="#3a72e8"/>
+        <stop offset="100%" stop-color="#1b3fa8"/>
+      </linearGradient>
+      <radialGradient id="${hlId}" cx="32%" cy="26%" r="70%">
+        <stop offset="0%" stop-color="#fff" stop-opacity="0.32"/>
+        <stop offset="55%" stop-color="#fff" stop-opacity="0"/>
+      </radialGradient>
+      ${live ? `<filter id="${shadowId}" x="-50%" y="-50%" width="200%" height="200%">
+        <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0b1a3d" flood-opacity="0.45"/>
+      </filter>` : ""}
+    </defs>
+    <circle cx="50" cy="50" r="50" fill="url(#${gradId})"/>
+    <circle cx="50" cy="50" r="50" fill="url(#${hlId})"/>
+    <g fill="#fff">
+      <path d="M50,33 C52,33 53.2,36.5 53.2,41 C53.2,47 52.2,53 50.9,59 C50.5,63 50.2,66.5 50,69 C49.8,66.5 49.5,63 49.1,59 C47.8,53 46.8,47 46.8,41 C46.8,36.5 48,33 50,33 Z"/>
+      <path d="M50.6,36.5 C59,29.5 70,25 78.5,28.5 C86,31.5 87,43 79,48 C71.5,52.5 60,51.5 52.7,49 C51,45 50.3,40.5 50.6,36.5 Z"/>
+      <path d="M52.7,49 C60,52.5 69,56.5 73,63.5 C76.5,69.5 72.5,75.5 65,73.5 C58,71.5 52,65.5 50.3,58 C50,54 50.3,51 52.7,49 Z"/>
+      <path d="M49.4,36.5 C41,29.5 30,25 21.5,28.5 C14,31.5 13,43 21,48 C28.5,52.5 40,51.5 47.3,49 C49,45 49.7,40.5 49.4,36.5 Z"/>
+      <path d="M47.3,49 C40,52.5 31,56.5 27,63.5 C23.5,69.5 27.5,75.5 35,73.5 C42,71.5 48,65.5 49.7,58 C50,54 49.7,51 47.3,49 Z"/>
+    </g>
+    ${liveBadge}
+  </svg>`;
+}
+
+/**
+ * エンブレム+「rbsky」ワードマークのロックアップ。「orbsky」のOをエンブレムに
+ * 置き換えた表記で、ヘッダー・フッター・/logo ページで共通に使う。
+ * アクセシブルネームは呼び出し側の `<a aria-label="orbsky ...">` に委ねるため、
+ * SVG自体はaria-hiddenにしている。
+ */
+export function brandLockup(uid: string, opts: { live?: boolean } = {}): string {
+  return `${brandOrbSvg(uid, opts)}<span class="brand-word">rbsky</span>`;
+}
+
+function faviconHref(): string {
+  return `data:image/svg+xml,${encodeURIComponent(brandOrbSvg("fav"))}`;
 }
 
 export function renderHtmlPage(
@@ -1191,6 +1317,7 @@ export function renderHtmlPage(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
+  <link rel="icon" type="image/svg+xml" href="${faviconHref()}">
   <title>${escapeAttribute(title)}</title>
   <script>${THEME_BOOTSTRAP}</script>
   <style>${STYLES}</style>
@@ -1198,7 +1325,7 @@ export function renderHtmlPage(
 <body${bodyClass}>
   <header class="site-header">
     <div class="header-inner">
-      <a class="brand" href="/" aria-label="orbsky トップ">orbsky</a>
+      <a class="brand" href="/" aria-label="orbsky トップ">${brandLockup("h")}</a>
       <button class="theme-toggle nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="site-nav">
         <span data-nav-toggle-label>メニュー</span>
       </button>
@@ -1212,11 +1339,15 @@ export function renderHtmlPage(
   <main class="page-shell${mainClass}">${body}</main>
   <footer class="site-footer">
     <div class="footer-inner">
-      <span>orbsky — Twitchの配信をBlueskyへ</span>
+      <div class="footer-brand">
+        <a class="brand brand-sm" href="/" aria-label="orbsky トップ">${brandLockup("f")}</a>
+        <span class="footer-tagline">— Twitchの配信をBlueskyへ</span>
+      </div>
       <nav class="footer-nav" aria-label="フッターナビゲーション">
         <a href="/">トップ</a>
         <a href="/guide">機能概要・使い方</a>
         <a href="/about">運営者情報</a>
+        <a href="/logo">ロゴ</a>
         <a href="/privacy">プライバシーポリシー</a>
       </nav>
     </div>
