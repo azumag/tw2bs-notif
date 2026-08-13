@@ -422,13 +422,21 @@ pre code { padding: 0; background: transparent; }
 .brand-orb {
   display: block;
   flex: 0 0 auto;
-  width: 1.4em;
-  height: 1.4em;
+  width: 1.26em;
+  height: 1.26em;
   filter: drop-shadow(0 3px 8px rgba(30, 60, 140, 0.25));
 }
 
 :root[data-theme="dark"] .brand-orb {
   filter: drop-shadow(0 0 4px rgba(90, 160, 255, 0.55));
+}
+
+.brand-orb.brand-live {
+  filter: drop-shadow(0 3px 8px rgba(190, 40, 40, 0.3));
+}
+
+:root[data-theme="dark"] .brand-orb.brand-live {
+  filter: drop-shadow(0 0 5px rgba(255, 90, 80, 0.6));
 }
 
 .brand-live-pulse {
@@ -1056,6 +1064,7 @@ pre code { padding: 0; background: transparent; }
 .logo-swatch-dark { background: #071426; }
 .logo-swatch-dark .brand { color: #fff; }
 .logo-swatch-dark .brand-orb { filter: drop-shadow(0 0 16px rgba(90, 160, 255, 0.7)) drop-shadow(0 0 34px rgba(60, 120, 255, 0.4)); }
+.logo-swatch-dark .brand-orb.brand-live { filter: drop-shadow(0 0 18px rgba(255, 90, 80, 0.75)) drop-shadow(0 0 36px rgba(255, 50, 50, 0.45)); }
 .logo-swatch-dark .brand-word {
   background-image: linear-gradient(180deg, #eaf3ff 0%, #a9cbff 32%, #5f97f2 68%, #2f5fd8 100%);
   text-shadow: 0 2px 2px rgba(4, 12, 40, 0.4);
@@ -1257,10 +1266,11 @@ function escapeAttribute(value: string): string {
 }
 
 /**
- * ブランドエンブレム(ワードマークの「O」の代わりとなるリング状のアイコン)の
- * インラインSVGを描く。青いグラデーションのリングの中に、翼をかたどった
- * グロッシーな2枚のシンボルを重ねる——実在のBlueskyロゴのトレースではなく、
- * 曲線・プロポーションを作り直したオリジナルの意匠。
+ * ブランドエンブレム(ワードマークの「O」の代わりとなるアイコン)のインライン
+ * SVGを描く。装飾を持たない、輪郭線だけのシンプルなリングにした
+ * ——実在のBlueskyロゴを想起させる意匠は使わない。配信中はリングが赤へ変わり、
+ * 下部に「ライブ」バッジが重なる(丸いアバターにライブ状態のリングを重ねる、
+ * よくあるUIパターンを踏襲)。
  *
  * ヘッダー・フッター・/logo ページなど同じレスポンス内で複数回描画されるため、
  * グラデーションのIDが衝突しないよう呼び出しごとに一意な uid を渡す。
@@ -1268,48 +1278,32 @@ function escapeAttribute(value: string): string {
 function brandOrbSvg(uid: string, opts: { live?: boolean } = {}): string {
   const live = opts.live ?? false;
   const ringId = `orb-ring-${uid}`;
-  const wingId = `orb-wing-${uid}`;
-  const glossId = `orb-gloss-${uid}`;
   const liveId = `orb-live-${uid}`;
+  const ringStops = live
+    ? `<stop offset="0%" stop-color="#ff9a8a"/>
+       <stop offset="50%" stop-color="#ff4d3d"/>
+       <stop offset="100%" stop-color="#c41e2f"/>`
+    : `<stop offset="0%" stop-color="#8fd8ff"/>
+       <stop offset="45%" stop-color="#4f8cf7"/>
+       <stop offset="100%" stop-color="#2450c9"/>`;
   const liveBadge = live
     ? `<g>
-        <rect x="57" y="75" width="40" height="19" rx="9.5" fill="url(#${liveId})"/>
-        <circle class="brand-live-pulse" cx="67" cy="84.5" r="3.1" fill="#fff"/>
-        <text x="75" y="85.3" font-family="Arial, Helvetica, sans-serif" font-size="10.5" font-weight="800" letter-spacing="0.3" fill="#fff">LIVE</text>
+        <rect x="21" y="77" width="58" height="22" rx="11" fill="url(#${liveId})"/>
+        <circle class="brand-live-pulse" cx="33.5" cy="88" r="3.2" fill="#fff"/>
+        <text x="40" y="88.4" font-family="'Hiragino Sans', 'Yu Gothic UI', Arial, sans-serif" font-size="10.5" font-weight="800" fill="#fff">ライブ</text>
       </g>`
     : "";
   return `<svg class="brand-orb${live ? " brand-live" : ""}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
     <defs>
       <linearGradient id="${ringId}" x1="20%" y1="0%" x2="80%" y2="100%">
-        <stop offset="0%" stop-color="#8fd8ff"/>
-        <stop offset="45%" stop-color="#4f8cf7"/>
-        <stop offset="100%" stop-color="#2450c9"/>
+        ${ringStops}
       </linearGradient>
-      <linearGradient id="${wingId}" x1="15%" y1="5%" x2="85%" y2="100%">
-        <stop offset="0%" stop-color="#7ec1ff"/>
-        <stop offset="50%" stop-color="#3f7bf0"/>
-        <stop offset="100%" stop-color="#1e3f9e"/>
-      </linearGradient>
-      <radialGradient id="${glossId}" cx="30%" cy="20%" r="55%">
-        <stop offset="0%" stop-color="#fff" stop-opacity="0.6"/>
-        <stop offset="100%" stop-color="#fff" stop-opacity="0"/>
-      </radialGradient>
       ${live ? `<linearGradient id="${liveId}" x1="20%" y1="0%" x2="80%" y2="100%">
         <stop offset="0%" stop-color="#ff6b5c"/>
         <stop offset="100%" stop-color="#e0273c"/>
       </linearGradient>` : ""}
     </defs>
-    <circle cx="50" cy="50" r="42.5" fill="none" stroke="url(#${ringId})" stroke-width="10.5"/>
-    <g fill="url(#${wingId})">
-      <path d="M50.5,28 C63,19 78,15 86,24 C93,32 91,48 78,53 C69,56.5 58,54.5 51,51 C49.8,44 49.8,35 50.5,28 Z"/>
-      <path d="M51,51 C59,54 68,58.5 72,66 C75.5,72.5 70,79 61.5,76.5 C54.5,74.5 49.5,67 48.7,58 C48.6,55 49.3,52.5 51,51 Z"/>
-      <path d="M49.5,28 C37,19 22,15 14,24 C7,32 9,48 22,53 C31,56.5 42,54.5 49,51 C50.2,44 50.2,35 49.5,28 Z"/>
-      <path d="M49,51 C41,54 32,58.5 28,66 C24.5,72.5 30,79 38.5,76.5 C45.5,74.5 50.5,67 51.3,58 C51.4,55 50.7,52.5 49,51 Z"/>
-    </g>
-    <g fill="url(#${glossId})">
-      <path d="M50.5,28 C63,19 78,15 86,24 C93,32 91,48 78,53 C69,56.5 58,54.5 51,51 C49.8,44 49.8,35 50.5,28 Z"/>
-      <path d="M49.5,28 C37,19 22,15 14,24 C7,32 9,48 22,53 C31,56.5 42,54.5 49,51 C50.2,44 50.2,35 49.5,28 Z"/>
-    </g>
+    <circle cx="50" cy="50" r="34.5" fill="none" stroke="url(#${ringId})" stroke-width="13"/>
     ${liveBadge}
   </svg>`;
 }
