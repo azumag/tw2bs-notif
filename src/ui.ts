@@ -409,11 +409,11 @@ pre code { padding: 0; background: transparent; }
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.34em;
+  gap: 0.3em;
   color: var(--text-strong);
   font-size: clamp(1.35rem, 2vw, 1.65rem);
   font-weight: 800;
-  letter-spacing: -0.045em;
+  letter-spacing: -0.02em;
   text-decoration: none;
 }
 
@@ -422,12 +422,13 @@ pre code { padding: 0; background: transparent; }
 .brand-orb {
   display: block;
   flex: 0 0 auto;
-  width: 1.3em;
-  height: 1.3em;
+  width: 1.4em;
+  height: 1.4em;
+  filter: drop-shadow(0 3px 8px rgba(30, 60, 140, 0.25));
 }
 
 :root[data-theme="dark"] .brand-orb {
-  filter: drop-shadow(0 0 5px rgba(90, 140, 255, 0.45));
+  filter: drop-shadow(0 0 4px rgba(90, 160, 255, 0.55));
 }
 
 .brand-live-pulse {
@@ -437,14 +438,32 @@ pre code { padding: 0; background: transparent; }
 
 @keyframes brand-live-pulse {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.62; }
+  50% { opacity: 0.35; }
 }
 
-.brand-word { line-height: 1; }
+.brand-word {
+  line-height: 1;
+  background-image: linear-gradient(180deg, #3f74e0 0%, #2456c4 45%, #123284 100%);
+  color: var(--text-strong);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+}
 
-.brand-sm { gap: 0.28em; font-size: 1.05rem; }
+@supports (background-clip: text) or (-webkit-background-clip: text) {
+  .brand-word {
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}
 
-.brand-huge { gap: 0.26em; font-size: clamp(2rem, 9vw, 5rem); }
+:root[data-theme="dark"] .brand-word {
+  background-image: linear-gradient(180deg, #eaf3ff 0%, #a9cbff 32%, #5f97f2 68%, #2f5fd8 100%);
+  text-shadow: 0 2px 2px rgba(4, 12, 40, 0.4);
+}
+
+.brand-sm { gap: 0.24em; font-size: 1.05rem; }
+
+.brand-huge { gap: 0.22em; font-size: clamp(2rem, 9vw, 5rem); }
 
 .header-nav {
   display: flex;
@@ -1029,9 +1048,18 @@ pre code { padding: 0; background: transparent; }
 
 .logo-swatch-light { border: 1px solid var(--border); background: #f8fafc; }
 .logo-swatch-light .brand { color: #0f1424; }
+.logo-swatch-light .brand-orb { filter: drop-shadow(0 3px 10px rgba(30, 60, 140, 0.25)); }
+.logo-swatch-light .brand-word {
+  background-image: linear-gradient(180deg, #3f74e0 0%, #2456c4 45%, #123284 100%);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+}
 .logo-swatch-dark { background: #071426; }
 .logo-swatch-dark .brand { color: #fff; }
-.logo-swatch-dark .brand-orb { filter: drop-shadow(0 0 8px rgba(90, 140, 255, 0.5)); }
+.logo-swatch-dark .brand-orb { filter: drop-shadow(0 0 16px rgba(90, 160, 255, 0.7)) drop-shadow(0 0 34px rgba(60, 120, 255, 0.4)); }
+.logo-swatch-dark .brand-word {
+  background-image: linear-gradient(180deg, #eaf3ff 0%, #a9cbff 32%, #5f97f2 68%, #2f5fd8 100%);
+  text-shadow: 0 2px 2px rgba(4, 12, 40, 0.4);
+}
 
 .logo-specs { display: grid; gap: 0.55rem; margin: 1.5rem 0 0; padding: 0; }
 .logo-specs > div { display: flex; gap: 0.9rem; border-bottom: 1px solid var(--border); padding-bottom: 0.55rem; }
@@ -1229,47 +1257,58 @@ function escapeAttribute(value: string): string {
 }
 
 /**
- * ブランドエンブレム(ワードマークの「O」の代わりとなる丸いアイコン)のインライン
- * SVGを描く。青いグラデーションの円に、翼をかたどった4弁のシンボルを重ねる
- * ——実在のBlueskyロゴのトレースではなく、あくまでオリジナルの意匠。
+ * ブランドエンブレム(ワードマークの「O」の代わりとなるリング状のアイコン)の
+ * インラインSVGを描く。青いグラデーションのリングの中に、翼をかたどった
+ * グロッシーな2枚のシンボルを重ねる——実在のBlueskyロゴのトレースではなく、
+ * 曲線・プロポーションを作り直したオリジナルの意匠。
  *
  * ヘッダー・フッター・/logo ページなど同じレスポンス内で複数回描画されるため、
- * グラデーション/フィルターのIDが衝突しないよう呼び出しごとに一意な uid を渡す。
+ * グラデーションのIDが衝突しないよう呼び出しごとに一意な uid を渡す。
  */
 function brandOrbSvg(uid: string, opts: { live?: boolean } = {}): string {
   const live = opts.live ?? false;
-  const gradId = `orb-g-${uid}`;
-  const hlId = `orb-hl-${uid}`;
-  const shadowId = `orb-sh-${uid}`;
+  const ringId = `orb-ring-${uid}`;
+  const wingId = `orb-wing-${uid}`;
+  const glossId = `orb-gloss-${uid}`;
+  const liveId = `orb-live-${uid}`;
   const liveBadge = live
-    ? `<g filter="url(#${shadowId})">
-        <circle cx="77" cy="77" r="15.5" fill="#fff"/>
-        <circle class="brand-live-pulse" cx="77" cy="77" r="12.5" fill="#ff3b30"/>
-        <circle cx="77" cy="77" r="4.4" fill="#fff"/>
+    ? `<g>
+        <rect x="57" y="75" width="40" height="19" rx="9.5" fill="url(#${liveId})"/>
+        <circle class="brand-live-pulse" cx="67" cy="84.5" r="3.1" fill="#fff"/>
+        <text x="75" y="85.3" font-family="Arial, Helvetica, sans-serif" font-size="10.5" font-weight="800" letter-spacing="0.3" fill="#fff">LIVE</text>
       </g>`
     : "";
   return `<svg class="brand-orb${live ? " brand-live" : ""}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
     <defs>
-      <linearGradient id="${gradId}" x1="12%" y1="8%" x2="88%" y2="92%">
-        <stop offset="0%" stop-color="#3a72e8"/>
-        <stop offset="100%" stop-color="#1b3fa8"/>
+      <linearGradient id="${ringId}" x1="20%" y1="0%" x2="80%" y2="100%">
+        <stop offset="0%" stop-color="#8fd8ff"/>
+        <stop offset="45%" stop-color="#4f8cf7"/>
+        <stop offset="100%" stop-color="#2450c9"/>
       </linearGradient>
-      <radialGradient id="${hlId}" cx="32%" cy="26%" r="70%">
-        <stop offset="0%" stop-color="#fff" stop-opacity="0.32"/>
-        <stop offset="55%" stop-color="#fff" stop-opacity="0"/>
+      <linearGradient id="${wingId}" x1="15%" y1="5%" x2="85%" y2="100%">
+        <stop offset="0%" stop-color="#7ec1ff"/>
+        <stop offset="50%" stop-color="#3f7bf0"/>
+        <stop offset="100%" stop-color="#1e3f9e"/>
+      </linearGradient>
+      <radialGradient id="${glossId}" cx="30%" cy="20%" r="55%">
+        <stop offset="0%" stop-color="#fff" stop-opacity="0.6"/>
+        <stop offset="100%" stop-color="#fff" stop-opacity="0"/>
       </radialGradient>
-      ${live ? `<filter id="${shadowId}" x="-50%" y="-50%" width="200%" height="200%">
-        <feDropShadow dx="0" dy="1.2" stdDeviation="1.6" flood-color="#0b1a3d" flood-opacity="0.45"/>
-      </filter>` : ""}
+      ${live ? `<linearGradient id="${liveId}" x1="20%" y1="0%" x2="80%" y2="100%">
+        <stop offset="0%" stop-color="#ff6b5c"/>
+        <stop offset="100%" stop-color="#e0273c"/>
+      </linearGradient>` : ""}
     </defs>
-    <circle cx="50" cy="50" r="50" fill="url(#${gradId})"/>
-    <circle cx="50" cy="50" r="50" fill="url(#${hlId})"/>
-    <g fill="#fff">
-      <path d="M50,33 C52,33 53.2,36.5 53.2,41 C53.2,47 52.2,53 50.9,59 C50.5,63 50.2,66.5 50,69 C49.8,66.5 49.5,63 49.1,59 C47.8,53 46.8,47 46.8,41 C46.8,36.5 48,33 50,33 Z"/>
-      <path d="M50.6,36.5 C59,29.5 70,25 78.5,28.5 C86,31.5 87,43 79,48 C71.5,52.5 60,51.5 52.7,49 C51,45 50.3,40.5 50.6,36.5 Z"/>
-      <path d="M52.7,49 C60,52.5 69,56.5 73,63.5 C76.5,69.5 72.5,75.5 65,73.5 C58,71.5 52,65.5 50.3,58 C50,54 50.3,51 52.7,49 Z"/>
-      <path d="M49.4,36.5 C41,29.5 30,25 21.5,28.5 C14,31.5 13,43 21,48 C28.5,52.5 40,51.5 47.3,49 C49,45 49.7,40.5 49.4,36.5 Z"/>
-      <path d="M47.3,49 C40,52.5 31,56.5 27,63.5 C23.5,69.5 27.5,75.5 35,73.5 C42,71.5 48,65.5 49.7,58 C50,54 49.7,51 47.3,49 Z"/>
+    <circle cx="50" cy="50" r="42.5" fill="none" stroke="url(#${ringId})" stroke-width="10.5"/>
+    <g fill="url(#${wingId})">
+      <path d="M50.5,28 C63,19 78,15 86,24 C93,32 91,48 78,53 C69,56.5 58,54.5 51,51 C49.8,44 49.8,35 50.5,28 Z"/>
+      <path d="M51,51 C59,54 68,58.5 72,66 C75.5,72.5 70,79 61.5,76.5 C54.5,74.5 49.5,67 48.7,58 C48.6,55 49.3,52.5 51,51 Z"/>
+      <path d="M49.5,28 C37,19 22,15 14,24 C7,32 9,48 22,53 C31,56.5 42,54.5 49,51 C50.2,44 50.2,35 49.5,28 Z"/>
+      <path d="M49,51 C41,54 32,58.5 28,66 C24.5,72.5 30,79 38.5,76.5 C45.5,74.5 50.5,67 51.3,58 C51.4,55 50.7,52.5 49,51 Z"/>
+    </g>
+    <g fill="url(#${glossId})">
+      <path d="M50.5,28 C63,19 78,15 86,24 C93,32 91,48 78,53 C69,56.5 58,54.5 51,51 C49.8,44 49.8,35 50.5,28 Z"/>
+      <path d="M49.5,28 C37,19 22,15 14,24 C7,32 9,48 22,53 C31,56.5 42,54.5 49,51 C50.2,44 50.2,35 49.5,28 Z"/>
     </g>
     ${liveBadge}
   </svg>`;
