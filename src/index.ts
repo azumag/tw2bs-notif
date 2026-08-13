@@ -498,7 +498,7 @@ function renderLogo(): Response {
     `<article class="content-page logo-page">
      <a class="back-link" href="/">トップへ戻る</a>
      <h1>ロゴ</h1>
-     <p class="lead">orbskyのブランドマーク。青いグラデーションの円に、翼をかたどったシンボルを重ねて「orbsky」の O を表す。配信中は右下にLIVEバッジが付く。</p>
+     <p class="lead">orbskyのブランドマーク。青いグラデーションのリングに、翼をかたどったグロッシーなシンボルを重ねて「orbsky」の O を表す。配信中はリング右下にLIVEバッジが付く。</p>
 
      <figure class="logo-figure">
        <figcaption class="logo-caption">ライトテーマ・標準</figcaption>
@@ -515,9 +515,9 @@ function renderLogo(): Response {
      </figure>
 
      <dl class="logo-specs">
-       <div><dt>エンブレム</dt><dd>linear-gradient(135deg, #3a72e8, #1b3fa8)</dd></div>
-       <div><dt>LIVEバッジ</dt><dd>#ff3b30</dd></div>
-       <div><dt>ワードマーク</dt><dd>太字幾何学サンセリフ / letter-spacing -0.045em</dd></div>
+       <div><dt>リング・翼</dt><dd>linear-gradient(#8fd8ff, #4f8cf7, #2450c9)</dd></div>
+       <div><dt>LIVEバッジ</dt><dd>linear-gradient(#ff6b5c, #e0273c)</dd></div>
+       <div><dt>ワードマーク</dt><dd>太字幾何学サンセリフ / グラデーション塗り / letter-spacing -0.02em</dd></div>
      </dl>
      </article>`,
   );

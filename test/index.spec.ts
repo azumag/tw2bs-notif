@@ -38,8 +38,8 @@ describe("tw2bs-notif worker", () => {
     const body = await response.text();
     // ヘッダーとフッターで1回ずつ描画され、グラデーションIDが衝突しない。
     expect(body.match(/class="brand-orb"/g)?.length).toBe(2);
-    expect(body).toContain('id="orb-g-h"');
-    expect(body).toContain('id="orb-g-f"');
+    expect(body).toContain('id="orb-ring-h"');
+    expect(body).toContain('id="orb-ring-f"');
     expect(body).toContain('<span class="brand-word">rbsky</span>');
     expect(body).toContain('aria-label="orbsky トップ"');
     expect(body).toContain('rel="icon"');
@@ -102,10 +102,13 @@ describe("tw2bs-notif worker", () => {
     // ダーク側のロックアップだけがLIVEバッジ(brand-live)を持つ。
     expect(body.match(/class="brand-orb brand-live"/g)?.length).toBe(1);
     // ヘッダー・フッター・ライト用・ダーク用の4つのエンブレムがすべて一意なIDを持つ。
-    expect(body).toContain('id="orb-g-h"');
-    expect(body).toContain('id="orb-g-f"');
-    expect(body).toContain('id="orb-g-logo-a"');
-    expect(body).toContain('id="orb-g-logo-b"');
+    expect(body).toContain('id="orb-ring-h"');
+    expect(body).toContain('id="orb-ring-f"');
+    expect(body).toContain('id="orb-ring-logo-a"');
+    expect(body).toContain('id="orb-ring-logo-b"');
+    // LIVEバッジのグラデーションもダーク側だけに存在する。
+    expect(body).toContain('id="orb-live-logo-b"');
+    expect(body).not.toContain('id="orb-live-logo-a"');
   });
 
   it("can read and write KV values", async () => {
