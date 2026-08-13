@@ -409,11 +409,11 @@ pre code { padding: 0; background: transparent; }
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 0.3em;
+  gap: 0.18em;
   color: var(--text-strong);
   font-size: clamp(1.35rem, 2vw, 1.65rem);
   font-weight: 800;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
   text-decoration: none;
 }
 
@@ -424,11 +424,11 @@ pre code { padding: 0; background: transparent; }
   flex: 0 0 auto;
   width: 1.26em;
   height: 1.26em;
-  filter: drop-shadow(0 3px 8px rgba(190, 40, 40, 0.3));
+  filter: drop-shadow(0 3px 8px rgba(30, 80, 170, 0.25));
 }
 
 :root[data-theme="dark"] .brand-orb {
-  filter: drop-shadow(0 0 5px rgba(255, 90, 80, 0.6));
+  filter: drop-shadow(0 0 4px rgba(90, 170, 255, 0.5));
 }
 
 .brand-live-pulse {
@@ -443,9 +443,9 @@ pre code { padding: 0; background: transparent; }
 
 .brand-word {
   line-height: 1;
-  background-image: linear-gradient(180deg, #e0473a 0%, #c4302a 45%, #841f16 100%);
+  background-image: linear-gradient(180deg, #3570d8 0%, #1a4aa8 45%, #0e2f72 100%);
   color: var(--text-strong);
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 
 @supports (background-clip: text) or (-webkit-background-clip: text) {
@@ -457,13 +457,13 @@ pre code { padding: 0; background: transparent; }
 }
 
 :root[data-theme="dark"] .brand-word {
-  background-image: linear-gradient(180deg, #ffe8e3 0%, #ffb3a8 32%, #ff6f5c 68%, #d8352f 100%);
-  text-shadow: 0 2px 2px rgba(40, 4, 4, 0.4);
+  background-image: linear-gradient(180deg, #f2f9ff 0%, #d6ebff 26%, #9ec9f7 58%, #5a94e4 100%);
+  text-shadow: 0 2px 3px rgba(3, 15, 45, 0.55);
 }
 
-.brand-sm { gap: 0.24em; font-size: 1.05rem; }
+.brand-sm { gap: 0.16em; font-size: 1.05rem; }
 
-.brand-huge { gap: 0.22em; font-size: clamp(2rem, 9vw, 5rem); }
+.brand-huge { gap: 0.14em; font-size: clamp(2rem, 9vw, 5rem); }
 
 .header-nav {
   display: flex;
@@ -1048,17 +1048,17 @@ pre code { padding: 0; background: transparent; }
 
 .logo-swatch-light { border: 1px solid var(--border); background: #f8fafc; }
 .logo-swatch-light .brand { color: #0f1424; }
-.logo-swatch-light .brand-orb { filter: drop-shadow(0 3px 10px rgba(190, 40, 40, 0.3)); }
+.logo-swatch-light .brand-orb { filter: drop-shadow(0 3px 10px rgba(30, 80, 170, 0.25)); }
 .logo-swatch-light .brand-word {
-  background-image: linear-gradient(180deg, #e0473a 0%, #c4302a 45%, #841f16 100%);
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
+  background-image: linear-gradient(180deg, #3570d8 0%, #1a4aa8 45%, #0e2f72 100%);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
 }
-.logo-swatch-dark { background: #071426; }
+.logo-swatch-dark { background: #0a1f3d; }
 .logo-swatch-dark .brand { color: #fff; }
-.logo-swatch-dark .brand-orb { filter: drop-shadow(0 0 18px rgba(255, 90, 80, 0.75)) drop-shadow(0 0 36px rgba(255, 50, 50, 0.45)); }
+.logo-swatch-dark .brand-orb { filter: drop-shadow(0 0 12px rgba(90, 170, 255, 0.6)) drop-shadow(0 0 30px rgba(60, 130, 255, 0.35)); }
 .logo-swatch-dark .brand-word {
-  background-image: linear-gradient(180deg, #ffe8e3 0%, #ffb3a8 32%, #ff6f5c 68%, #d8352f 100%);
-  text-shadow: 0 2px 2px rgba(40, 4, 4, 0.4);
+  background-image: linear-gradient(180deg, #f2f9ff 0%, #d6ebff 26%, #9ec9f7 58%, #5a94e4 100%);
+  text-shadow: 0 2px 3px rgba(3, 15, 45, 0.55);
 }
 
 .logo-specs { display: grid; gap: 0.55rem; margin: 1.5rem 0 0; padding: 0; }
@@ -1258,12 +1258,9 @@ function escapeAttribute(value: string): string {
 
 /**
  * ブランドエンブレム(ワードマークの「O」の代わりとなるアイコン)のインライン
- * SVGを描く。赤いリングは配信中かどうかに関わらず常に赤——固定のブランド
- * カラーであり、ライブ状態のインジケーターではない。リングの中には線画
- * (輪郭線だけ、塗りつぶさない)のシンプルな蝶を配置する——実在のBlueskyロゴの
- * トレースではなく、触角・胴体・4枚の翅を持つ一般的な蝶のピクトグラム。
- * 配信中は下部に「ライブ」バッジが重なる(丸いアバターにライブ状態のリングを
- * 重ねる、よくあるUIパターンを踏襲)。
+ * SVGを描く。青いグラデーションのリングだけで、内側には何も置かない
+ * ——文字の O としてそのまま読める形。リングの色は配信状態に関わらず常に青
+ * (固定のブランドカラー)で、配信中は下部に赤い LIVE バッジが重なる。
  *
  * ヘッダー・フッター・/logo ページなど同じレスポンス内で複数回描画されるため、
  * グラデーションのIDが衝突しないよう呼び出しごとに一意な uid を渡す。
@@ -1274,35 +1271,24 @@ function brandOrbSvg(uid: string, opts: { live?: boolean } = {}): string {
   const liveId = `orb-live-${uid}`;
   const liveBadge = live
     ? `<g>
-        <rect x="21" y="77" width="58" height="22" rx="11" fill="url(#${liveId})"/>
-        <circle class="brand-live-pulse" cx="33.5" cy="88" r="3.2" fill="#fff"/>
-        <text x="40" y="88.4" font-family="'Hiragino Sans', 'Yu Gothic UI', Arial, sans-serif" font-size="10.5" font-weight="800" fill="#fff">ライブ</text>
+        <rect x="38" y="75" width="48" height="16.5" rx="8.25" fill="url(#${liveId})"/>
+        <circle class="brand-live-pulse" cx="46.5" cy="83.3" r="2.9" fill="#fff"/>
+        <text x="52" y="86.6" font-family="Arial, Helvetica, sans-serif" font-size="9.6" font-weight="800" letter-spacing="0.3" fill="#fff">LIVE</text>
       </g>`
     : "";
   return `<svg class="brand-orb${live ? " brand-live" : ""}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
     <defs>
-      <linearGradient id="${ringId}" x1="20%" y1="0%" x2="80%" y2="100%">
-        <stop offset="0%" stop-color="#ff9a8a"/>
-        <stop offset="50%" stop-color="#ff4d3d"/>
-        <stop offset="100%" stop-color="#c41e2f"/>
+      <linearGradient id="${ringId}" x1="15%" y1="0%" x2="85%" y2="100%">
+        <stop offset="0%" stop-color="#a8e0ff"/>
+        <stop offset="45%" stop-color="#5aa2ff"/>
+        <stop offset="100%" stop-color="#2563d8"/>
       </linearGradient>
       ${live ? `<linearGradient id="${liveId}" x1="20%" y1="0%" x2="80%" y2="100%">
-        <stop offset="0%" stop-color="#ff6b5c"/>
-        <stop offset="100%" stop-color="#e0273c"/>
+        <stop offset="0%" stop-color="#f0403a"/>
+        <stop offset="100%" stop-color="#d0201f"/>
       </linearGradient>` : ""}
     </defs>
-    <circle cx="50" cy="50" r="34.5" fill="none" stroke="url(#${ringId})" stroke-width="13"/>
-    <g fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round">
-      <path d="M49,35 C46,29 43,26 40,23"/>
-      <path d="M51,35 C54,29 57,26 60,23"/>
-      <circle cx="40" cy="23" r="1.6" fill="#fff" stroke="none"/>
-      <circle cx="60" cy="23" r="1.6" fill="#fff" stroke="none"/>
-      <path d="M50,36 L50,67"/>
-      <path d="M50,37 C56,28 68,25 74,33 C79,40 74,49 63,49 C56,49 51,44 50,37 Z"/>
-      <path d="M50,49 C55,52 62,56 64,63 C66,69 60,73 54,70 C50,68 48,60 49,54 C49,52 49.5,50 50,49 Z"/>
-      <path d="M50,37 C44,28 32,25 26,33 C21,40 26,49 37,49 C44,49 49,44 50,37 Z"/>
-      <path d="M50,49 C45,52 38,56 36,63 C34,69 40,73 46,70 C50,68 52,60 51,54 C51,52 50.5,50 50,49 Z"/>
-    </g>
+    <circle cx="50" cy="50" r="39" fill="none" stroke="url(#${ringId})" stroke-width="10"/>
     ${liveBadge}
   </svg>`;
 }

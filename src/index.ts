@@ -498,7 +498,7 @@ function renderLogo(): Response {
     `<article class="content-page logo-page">
      <a class="back-link" href="/">トップへ戻る</a>
      <h1>ロゴ</h1>
-     <p class="lead">orbskyのブランドマーク。赤いリングの中に線画の蝶を配置して「orbsky」の O を表す。リングの色は常に赤——ブランドカラーであり、配信状態を示すものではない。配信中は下部に「ライブ」バッジが重なる。</p>
+     <p class="lead">orbskyのブランドマーク。青いリングそのものが「orbsky」の O を表す。リングの色は常に青——ブランドカラーであり、配信状態を示すものではない。配信中は下部に赤い LIVE バッジが重なる。</p>
 
      <figure class="logo-figure">
        <figcaption class="logo-caption">ライトテーマ・標準</figcaption>
@@ -515,9 +515,9 @@ function renderLogo(): Response {
      </figure>
 
      <dl class="logo-specs">
-       <div><dt>リング</dt><dd>linear-gradient(#ff9a8a, #ff4d3d, #c41e2f)</dd></div>
-       <div><dt>ライブバッジ</dt><dd>linear-gradient(#ff6b5c, #e0273c)</dd></div>
-       <div><dt>ワードマーク</dt><dd>太字幾何学サンセリフ / グラデーション塗り(赤系) / letter-spacing -0.02em</dd></div>
+       <div><dt>リング</dt><dd>linear-gradient(#a8e0ff, #5aa2ff, #2563d8)</dd></div>
+       <div><dt>LIVEバッジ</dt><dd>linear-gradient(#f0403a, #d0201f)</dd></div>
+       <div><dt>ワードマーク</dt><dd>太字幾何学サンセリフ / グラデーション塗り / letter-spacing -0.03em</dd></div>
      </dl>
      </article>`,
   );
