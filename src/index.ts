@@ -61,7 +61,7 @@ import {
   MAX_POST_TEMPLATE_LENGTH,
   validatePostTemplate,
 } from "./lib/post-template";
-import { renderHtmlPage, type PageOptions } from "./ui";
+import { renderHtmlPage, brandLockup, type PageOptions } from "./ui";
 
 const LOGIN_PATH = "/auth/twitch/login";
 const CALLBACK_PATH = "/auth/twitch/callback";
@@ -69,6 +69,7 @@ const LOGOUT_PATH = "/auth/logout";
 const GUIDE_PATH = "/guide";
 const PRIVACY_PATH = "/privacy";
 const ABOUT_PATH = "/about";
+const LOGO_PATH = "/logo";
 const CHANNELS_PATH = "/channels";
 const CHANNELS_CONNECT_PATH = "/channels/connect";
 const CHANNELS_ADD_PATH = "/channels/add";
@@ -487,6 +488,37 @@ function renderAbout(): Response {
 
      <h2>orbskyについて</h2>
      <p>orbskyは、Twitchの配信開始・終了を検知して、Blueskyの配信中ステータスとお知らせ投稿へ自動で反映するサービスです。</p>
+     </article>`,
+  );
+}
+
+function renderLogo(): Response {
+  return htmlPage(
+    "orbsky - ロゴ",
+    `<article class="content-page logo-page">
+     <a class="back-link" href="/">トップへ戻る</a>
+     <h1>ロゴ</h1>
+     <p class="lead">orbskyのブランドマーク。青いグラデーションの円に、翼をかたどったシンボルを重ねて「orbsky」の O を表す。配信中は右下にLIVEバッジが付く。</p>
+
+     <figure class="logo-figure">
+       <figcaption class="logo-caption">ライトテーマ・標準</figcaption>
+       <div class="logo-swatch logo-swatch-light">
+         <a class="brand brand-huge" href="/" aria-label="orbsky トップ">${brandLockup("logo-a")}</a>
+       </div>
+     </figure>
+
+     <figure class="logo-figure">
+       <figcaption class="logo-caption">ダークテーマ・配信中(LIVE)</figcaption>
+       <div class="logo-swatch logo-swatch-dark">
+         <a class="brand brand-huge" href="/" aria-label="orbsky トップ">${brandLockup("logo-b", { live: true })}</a>
+       </div>
+     </figure>
+
+     <dl class="logo-specs">
+       <div><dt>エンブレム</dt><dd>linear-gradient(135deg, #3a72e8, #1b3fa8)</dd></div>
+       <div><dt>LIVEバッジ</dt><dd>#ff3b30</dd></div>
+       <div><dt>ワードマーク</dt><dd>太字幾何学サンセリフ / letter-spacing -0.045em</dd></div>
+     </dl>
      </article>`,
   );
 }
@@ -1482,6 +1514,9 @@ export default {
     }
     if (url.pathname === ABOUT_PATH && request.method === "GET") {
       return renderAbout();
+    }
+    if (url.pathname === LOGO_PATH && request.method === "GET") {
+      return renderLogo();
     }
     if (url.pathname === GUIDE_PATH && request.method === "GET") {
       const session = await getSession(env, request);
