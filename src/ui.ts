@@ -1258,9 +1258,8 @@ function escapeAttribute(value: string): string {
 
 /**
  * ブランドエンブレム(ワードマークの「O」の代わりとなるアイコン)のインライン
- * SVGを描く。細い青いグラデーションのリングの中に、塗りつぶしの蝶を配置する
- * ——実在のBlueskyロゴのトレースではなく、上翅・下翅の丸みとプロポーションを
- * 起こし直したオリジナルの意匠。リングの色は配信状態に関わらず常に青
+ * SVGを描く。青いグラデーションのリングだけで、内側には何も置かない
+ * ——文字の O としてそのまま読める形。リングの色は配信状態に関わらず常に青
  * (固定のブランドカラー)で、配信中は下部に赤い LIVE バッジが重なる。
  *
  * ヘッダー・フッター・/logo ページなど同じレスポンス内で複数回描画されるため、
@@ -1269,7 +1268,6 @@ function escapeAttribute(value: string): string {
 function brandOrbSvg(uid: string, opts: { live?: boolean } = {}): string {
   const live = opts.live ?? false;
   const ringId = `orb-ring-${uid}`;
-  const wingId = `orb-wing-${uid}`;
   const liveId = `orb-live-${uid}`;
   const liveBadge = live
     ? `<g>
@@ -1285,24 +1283,12 @@ function brandOrbSvg(uid: string, opts: { live?: boolean } = {}): string {
         <stop offset="45%" stop-color="#5aa2ff"/>
         <stop offset="100%" stop-color="#2563d8"/>
       </linearGradient>
-      <linearGradient id="${wingId}" x1="20%" y1="0%" x2="80%" y2="100%">
-        <stop offset="0%" stop-color="#7cc0ff"/>
-        <stop offset="55%" stop-color="#3d8ced"/>
-        <stop offset="100%" stop-color="#2a6ed0"/>
-      </linearGradient>
       ${live ? `<linearGradient id="${liveId}" x1="20%" y1="0%" x2="80%" y2="100%">
         <stop offset="0%" stop-color="#f0403a"/>
         <stop offset="100%" stop-color="#d0201f"/>
       </linearGradient>` : ""}
     </defs>
-    <circle cx="50" cy="50" r="37" fill="none" stroke="url(#${ringId})" stroke-width="7.5"/>
-    <g fill="url(#${wingId})">
-      <path d="M50,34 C50.8,34 51.3,35.5 51.3,37.6 C51.3,46 50.8,57 50,66 C49.2,57 48.7,46 48.7,37.6 C48.7,35.5 49.2,34 50,34 Z"/>
-      <path d="M51.6,47.5 C50.4,39 54.5,26 63.5,23 C72.5,20 78,27 76,36.5 C74,46.5 64,53 56.5,52 C54,51.6 52,49.8 51.6,47.5 Z"/>
-      <path d="M48.4,47.5 C49.6,39 45.5,26 36.5,23 C27.5,20 22,27 24,36.5 C26,46.5 36,53 43.5,52 C46,51.6 48,49.8 48.4,47.5 Z"/>
-      <path d="M51.6,53 C56.5,52.2 64,56.5 66,63.5 C68,70.5 62,75 56.5,72 C52,69.5 50.8,61.5 51.1,57 C51.2,54.6 51.4,53.5 51.6,53 Z"/>
-      <path d="M48.4,53 C43.5,52.2 36,56.5 34,63.5 C32,70.5 38,75 43.5,72 C48,69.5 49.2,61.5 48.9,57 C48.8,54.6 48.6,53.5 48.4,53 Z"/>
-    </g>
+    <circle cx="50" cy="50" r="39" fill="none" stroke="url(#${ringId})" stroke-width="10"/>
     ${liveBadge}
   </svg>`;
 }
