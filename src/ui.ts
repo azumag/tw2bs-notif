@@ -424,18 +424,10 @@ pre code { padding: 0; background: transparent; }
   flex: 0 0 auto;
   width: 1.26em;
   height: 1.26em;
-  filter: drop-shadow(0 3px 8px rgba(30, 60, 140, 0.25));
-}
-
-:root[data-theme="dark"] .brand-orb {
-  filter: drop-shadow(0 0 4px rgba(90, 160, 255, 0.55));
-}
-
-.brand-orb.brand-live {
   filter: drop-shadow(0 3px 8px rgba(190, 40, 40, 0.3));
 }
 
-:root[data-theme="dark"] .brand-orb.brand-live {
+:root[data-theme="dark"] .brand-orb {
   filter: drop-shadow(0 0 5px rgba(255, 90, 80, 0.6));
 }
 
@@ -451,7 +443,7 @@ pre code { padding: 0; background: transparent; }
 
 .brand-word {
   line-height: 1;
-  background-image: linear-gradient(180deg, #3f74e0 0%, #2456c4 45%, #123284 100%);
+  background-image: linear-gradient(180deg, #e0473a 0%, #c4302a 45%, #841f16 100%);
   color: var(--text-strong);
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
 }
@@ -465,8 +457,8 @@ pre code { padding: 0; background: transparent; }
 }
 
 :root[data-theme="dark"] .brand-word {
-  background-image: linear-gradient(180deg, #eaf3ff 0%, #a9cbff 32%, #5f97f2 68%, #2f5fd8 100%);
-  text-shadow: 0 2px 2px rgba(4, 12, 40, 0.4);
+  background-image: linear-gradient(180deg, #ffe8e3 0%, #ffb3a8 32%, #ff6f5c 68%, #d8352f 100%);
+  text-shadow: 0 2px 2px rgba(40, 4, 4, 0.4);
 }
 
 .brand-sm { gap: 0.24em; font-size: 1.05rem; }
@@ -1056,18 +1048,17 @@ pre code { padding: 0; background: transparent; }
 
 .logo-swatch-light { border: 1px solid var(--border); background: #f8fafc; }
 .logo-swatch-light .brand { color: #0f1424; }
-.logo-swatch-light .brand-orb { filter: drop-shadow(0 3px 10px rgba(30, 60, 140, 0.25)); }
+.logo-swatch-light .brand-orb { filter: drop-shadow(0 3px 10px rgba(190, 40, 40, 0.3)); }
 .logo-swatch-light .brand-word {
-  background-image: linear-gradient(180deg, #3f74e0 0%, #2456c4 45%, #123284 100%);
+  background-image: linear-gradient(180deg, #e0473a 0%, #c4302a 45%, #841f16 100%);
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 .logo-swatch-dark { background: #071426; }
 .logo-swatch-dark .brand { color: #fff; }
-.logo-swatch-dark .brand-orb { filter: drop-shadow(0 0 16px rgba(90, 160, 255, 0.7)) drop-shadow(0 0 34px rgba(60, 120, 255, 0.4)); }
-.logo-swatch-dark .brand-orb.brand-live { filter: drop-shadow(0 0 18px rgba(255, 90, 80, 0.75)) drop-shadow(0 0 36px rgba(255, 50, 50, 0.45)); }
+.logo-swatch-dark .brand-orb { filter: drop-shadow(0 0 18px rgba(255, 90, 80, 0.75)) drop-shadow(0 0 36px rgba(255, 50, 50, 0.45)); }
 .logo-swatch-dark .brand-word {
-  background-image: linear-gradient(180deg, #eaf3ff 0%, #a9cbff 32%, #5f97f2 68%, #2f5fd8 100%);
-  text-shadow: 0 2px 2px rgba(4, 12, 40, 0.4);
+  background-image: linear-gradient(180deg, #ffe8e3 0%, #ffb3a8 32%, #ff6f5c 68%, #d8352f 100%);
+  text-shadow: 0 2px 2px rgba(40, 4, 4, 0.4);
 }
 
 .logo-specs { display: grid; gap: 0.55rem; margin: 1.5rem 0 0; padding: 0; }
@@ -1267,10 +1258,12 @@ function escapeAttribute(value: string): string {
 
 /**
  * ブランドエンブレム(ワードマークの「O」の代わりとなるアイコン)のインライン
- * SVGを描く。装飾を持たない、輪郭線だけのシンプルなリングにした
- * ——実在のBlueskyロゴを想起させる意匠は使わない。配信中はリングが赤へ変わり、
- * 下部に「ライブ」バッジが重なる(丸いアバターにライブ状態のリングを重ねる、
- * よくあるUIパターンを踏襲)。
+ * SVGを描く。赤いリングは配信中かどうかに関わらず常に赤——固定のブランド
+ * カラーであり、ライブ状態のインジケーターではない。リングの中には線画
+ * (輪郭線だけ、塗りつぶさない)のシンプルな蝶を配置する——実在のBlueskyロゴの
+ * トレースではなく、触角・胴体・4枚の翅を持つ一般的な蝶のピクトグラム。
+ * 配信中は下部に「ライブ」バッジが重なる(丸いアバターにライブ状態のリングを
+ * 重ねる、よくあるUIパターンを踏襲)。
  *
  * ヘッダー・フッター・/logo ページなど同じレスポンス内で複数回描画されるため、
  * グラデーションのIDが衝突しないよう呼び出しごとに一意な uid を渡す。
@@ -1279,13 +1272,6 @@ function brandOrbSvg(uid: string, opts: { live?: boolean } = {}): string {
   const live = opts.live ?? false;
   const ringId = `orb-ring-${uid}`;
   const liveId = `orb-live-${uid}`;
-  const ringStops = live
-    ? `<stop offset="0%" stop-color="#ff9a8a"/>
-       <stop offset="50%" stop-color="#ff4d3d"/>
-       <stop offset="100%" stop-color="#c41e2f"/>`
-    : `<stop offset="0%" stop-color="#8fd8ff"/>
-       <stop offset="45%" stop-color="#4f8cf7"/>
-       <stop offset="100%" stop-color="#2450c9"/>`;
   const liveBadge = live
     ? `<g>
         <rect x="21" y="77" width="58" height="22" rx="11" fill="url(#${liveId})"/>
@@ -1296,7 +1282,9 @@ function brandOrbSvg(uid: string, opts: { live?: boolean } = {}): string {
   return `<svg class="brand-orb${live ? " brand-live" : ""}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
     <defs>
       <linearGradient id="${ringId}" x1="20%" y1="0%" x2="80%" y2="100%">
-        ${ringStops}
+        <stop offset="0%" stop-color="#ff9a8a"/>
+        <stop offset="50%" stop-color="#ff4d3d"/>
+        <stop offset="100%" stop-color="#c41e2f"/>
       </linearGradient>
       ${live ? `<linearGradient id="${liveId}" x1="20%" y1="0%" x2="80%" y2="100%">
         <stop offset="0%" stop-color="#ff6b5c"/>
@@ -1304,6 +1292,17 @@ function brandOrbSvg(uid: string, opts: { live?: boolean } = {}): string {
       </linearGradient>` : ""}
     </defs>
     <circle cx="50" cy="50" r="34.5" fill="none" stroke="url(#${ringId})" stroke-width="13"/>
+    <g fill="none" stroke="#fff" stroke-width="3.6" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M49,35 C46,29 43,26 40,23"/>
+      <path d="M51,35 C54,29 57,26 60,23"/>
+      <circle cx="40" cy="23" r="1.6" fill="#fff" stroke="none"/>
+      <circle cx="60" cy="23" r="1.6" fill="#fff" stroke="none"/>
+      <path d="M50,36 L50,67"/>
+      <path d="M50,37 C56,28 68,25 74,33 C79,40 74,49 63,49 C56,49 51,44 50,37 Z"/>
+      <path d="M50,49 C55,52 62,56 64,63 C66,69 60,73 54,70 C50,68 48,60 49,54 C49,52 49.5,50 50,49 Z"/>
+      <path d="M50,37 C44,28 32,25 26,33 C21,40 26,49 37,49 C44,49 49,44 50,37 Z"/>
+      <path d="M50,49 C45,52 38,56 36,63 C34,69 40,73 46,70 C50,68 52,60 51,54 C51,52 50.5,50 50,49 Z"/>
+    </g>
     ${liveBadge}
   </svg>`;
 }
