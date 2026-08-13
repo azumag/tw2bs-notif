@@ -61,6 +61,7 @@ import {
   MAX_POST_TEMPLATE_LENGTH,
   validatePostTemplate,
 } from "./lib/post-template";
+import { hasLiveConnection } from "./lib/live-streams";
 import { renderHtmlPage, brandLockup, type PageOptions } from "./ui";
 
 const LOGIN_PATH = "/auth/twitch/login";
@@ -272,7 +273,7 @@ async function renderIndex(
          </form>
        </div>
      </section>`,
-    { session, currentPath: "/" },
+    { session, currentPath: "/", live: await hasLiveConnection(env, session.twitchUserId) },
   );
 }
 
@@ -498,7 +499,7 @@ function renderLogo(): Response {
     `<article class="content-page logo-page">
      <a class="back-link" href="/">トップへ戻る</a>
      <h1>ロゴ</h1>
-     <p class="lead">orbskyのブランドマーク。青いリングそのものが「orbsky」の O を表す。リングの色は常に青——ブランドカラーであり、配信状態を示すものではない。配信中は下部に赤い LIVE バッジが重なる。</p>
+     <p class="lead">orbskyのブランドマーク。青いリングそのものが「orbsky」の O を表す。リングの色は常に青——ブランドカラーであり、配信状態を示すものではない。連携チャネルが配信中のときだけ、リングに赤いバッジが重なる。</p>
 
      <figure class="logo-figure">
        <figcaption class="logo-caption">ライトテーマ・標準</figcaption>
@@ -510,13 +511,20 @@ function renderLogo(): Response {
      <figure class="logo-figure">
        <figcaption class="logo-caption">ダークテーマ・配信中(ライブ)</figcaption>
        <div class="logo-swatch logo-swatch-dark">
-         <a class="brand brand-huge" href="/" aria-label="orbsky トップ">${brandLockup("logo-b", { live: true })}</a>
+         <a class="brand brand-huge" href="/" aria-label="orbsky トップ(配信中)">${brandLockup("logo-b", { live: true, liveLabel: true })}</a>
+       </div>
+     </figure>
+
+     <figure class="logo-figure">
+       <figcaption class="logo-caption">配信中・ヘッダー実寸(バッジはドットに切り替わる)</figcaption>
+       <div class="logo-swatch logo-swatch-dark">
+         <a class="brand" href="/" aria-label="orbsky トップ(配信中)">${brandLockup("logo-c", { live: true })}</a>
        </div>
      </figure>
 
      <dl class="logo-specs">
        <div><dt>リング</dt><dd>linear-gradient(#a8e0ff, #5aa2ff, #2563d8)</dd></div>
-       <div><dt>LIVEバッジ</dt><dd>linear-gradient(#f0403a, #d0201f)</dd></div>
+       <div><dt>配信中バッジ</dt><dd>linear-gradient(#f0403a, #d0201f)</dd></div>
        <div><dt>ワードマーク</dt><dd>太字幾何学サンセリフ / グラデーション塗り / letter-spacing -0.03em</dd></div>
      </dl>
      </article>`,
@@ -761,7 +769,12 @@ async function handleChannels(
        ${multiChannelSettings}
        <p class="help-text">自動ポストのON/OFF、本文、配信タイトル・カテゴリの使用は、すべてのプランで利用できます。</p>
      </section>`,
-    { session, mainClass: "channels-page", currentPath: CHANNELS_PATH },
+    {
+      session,
+      mainClass: "channels-page",
+      currentPath: CHANNELS_PATH,
+      live: await hasLiveConnection(env, session.twitchUserId),
+    },
   );
 }
 
@@ -1096,7 +1109,11 @@ async function handleSupport(
          ${subDisableForm}
        </section>
      </article>`,
-    { session, currentPath: SUPPORT_PATH },
+    {
+      session,
+      currentPath: SUPPORT_PATH,
+      live: await hasLiveConnection(env, session.twitchUserId),
+    },
   );
 }
 
@@ -1485,7 +1502,11 @@ async function handleSettings(
          </div>
        </section>
      </article>`,
-    { session, currentPath: SETTINGS_PATH },
+    {
+      session,
+      currentPath: SETTINGS_PATH,
+      live: await hasLiveConnection(env, session.twitchUserId),
+    },
   );
 }
 
