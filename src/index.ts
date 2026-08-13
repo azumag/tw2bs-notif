@@ -498,7 +498,7 @@ function renderLogo(): Response {
     `<article class="content-page logo-page">
      <a class="back-link" href="/">トップへ戻る</a>
      <h1>ロゴ</h1>
-     <p class="lead">orbskyのブランドマーク。青いグラデーションのリングに、翼をかたどったグロッシーなシンボルを重ねて「orbsky」の O を表す。配信中はリング右下にLIVEバッジが付く。</p>
+     <p class="lead">orbskyのブランドマーク。輪郭線だけのシンプルなリングで「orbsky」の O を表す。配信中はリングが赤に変わり、下部に「ライブ」バッジが重なる。</p>
 
      <figure class="logo-figure">
        <figcaption class="logo-caption">ライトテーマ・標準</figcaption>
@@ -508,15 +508,16 @@ function renderLogo(): Response {
      </figure>
 
      <figure class="logo-figure">
-       <figcaption class="logo-caption">ダークテーマ・配信中(LIVE)</figcaption>
+       <figcaption class="logo-caption">ダークテーマ・配信中(ライブ)</figcaption>
        <div class="logo-swatch logo-swatch-dark">
          <a class="brand brand-huge" href="/" aria-label="orbsky トップ">${brandLockup("logo-b", { live: true })}</a>
        </div>
      </figure>
 
      <dl class="logo-specs">
-       <div><dt>リング・翼</dt><dd>linear-gradient(#8fd8ff, #4f8cf7, #2450c9)</dd></div>
-       <div><dt>LIVEバッジ</dt><dd>linear-gradient(#ff6b5c, #e0273c)</dd></div>
+       <div><dt>リング(標準)</dt><dd>linear-gradient(#8fd8ff, #4f8cf7, #2450c9)</dd></div>
+       <div><dt>リング(配信中)</dt><dd>linear-gradient(#ff9a8a, #ff4d3d, #c41e2f)</dd></div>
+       <div><dt>ライブバッジ</dt><dd>linear-gradient(#ff6b5c, #e0273c)</dd></div>
        <div><dt>ワードマーク</dt><dd>太字幾何学サンセリフ / グラデーション塗り / letter-spacing -0.02em</dd></div>
      </dl>
      </article>`,

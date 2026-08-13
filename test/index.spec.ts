@@ -98,7 +98,7 @@ describe("tw2bs-notif worker", () => {
     expect(body).toContain("logo-swatch-light");
     expect(body).toContain("logo-swatch-dark");
     expect(body).toContain("ライトテーマ・標準");
-    expect(body).toContain("ダークテーマ・配信中(LIVE)");
+    expect(body).toContain("ダークテーマ・配信中(ライブ)");
     // ダーク側のロックアップだけがLIVEバッジ(brand-live)を持つ。
     expect(body.match(/class="brand-orb brand-live"/g)?.length).toBe(1);
     // ヘッダー・フッター・ライト用・ダーク用の4つのエンブレムがすべて一意なIDを持つ。
