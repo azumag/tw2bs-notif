@@ -37,7 +37,9 @@ describe("tw2bs-notif worker", () => {
     expect(response.status).toBe(200);
     const body = await response.text();
     // ヘッダーとフッターで1回ずつ描画され、グラデーションIDが衝突しない。
-    expect(body.match(/class="brand-orb"/g)?.length).toBe(2);
+    // LIVEチップはロゴの一部なので、未ログインでも常に付く。
+    expect(body.match(/class="brand-orb brand-live"/g)?.length).toBe(2);
+    expect(body.match(/>LIVE</g)?.length).toBe(2);
     expect(body).toContain('id="orb-ring-h"');
     expect(body).toContain('id="orb-ring-f"');
     expect(body).toContain('<span class="brand-word">rbsky</span>');
@@ -90,32 +92,29 @@ describe("tw2bs-notif worker", () => {
     expect(body).toContain('href="https://azumag.fanbox.cc/"');
   });
 
-  it("ログイン前でもロゴページを読め、ライト標準・ダークLIVEの両ロゴが表示される", async () => {
+  it("ログイン前でもロゴページを読め、ライト・ダーク・ヘッダー実寸の見本が表示される", async () => {
     const response = await exports.default.fetch("https://example.com/logo");
     expect(response.status).toBe(200);
     const body = await response.text();
     expect(body).toContain("<h1>ロゴ</h1>");
     expect(body).toContain("logo-swatch-light");
     expect(body).toContain("logo-swatch-dark");
-    expect(body).toContain("ライトテーマ・標準");
-    expect(body).toContain("ダークテーマ・配信中(ライブ)");
-    expect(body).toContain("配信中・ヘッダー実寸");
-    // 配信中の見本2つ(ピル型・ドット型)だけがバッジ(brand-live)を持ち、
-    // 標準の見本とヘッダー・フッター(未ログイン)には付かない。
-    expect(body.match(/class="brand-orb brand-live"/g)?.length).toBe(2);
-    // 大きい方だけが「LIVE」の文字入りピル、小さい方はドットに切り替わる。
-    expect(body.match(/>LIVE</g)?.length).toBe(1);
-    expect(body.match(/class="brand-live-halo"/g)?.length).toBe(1);
+    expect(body).toContain("ライトテーマ");
+    expect(body).toContain("ダークテーマ");
+    expect(body).toContain("ヘッダー実寸");
+    // LIVEチップはロゴの一部なので、ヘッダー・フッター・見本3つの全てに付く。
+    expect(body.match(/class="brand-orb brand-live"/g)?.length).toBe(5);
+    expect(body.match(/>LIVE</g)?.length).toBe(5);
     // ヘッダー・フッター・見本3つのエンブレムがすべて一意なIDを持つ。
     expect(body).toContain('id="orb-ring-h"');
     expect(body).toContain('id="orb-ring-f"');
     expect(body).toContain('id="orb-ring-logo-a"');
     expect(body).toContain('id="orb-ring-logo-b"');
     expect(body).toContain('id="orb-ring-logo-c"');
-    // バッジのグラデーションは配信中の見本にだけ存在する。
+    // チップのグラデーションも各エンブレムに1つずつある。
+    expect(body).toContain('id="orb-live-logo-a"');
     expect(body).toContain('id="orb-live-logo-b"');
     expect(body).toContain('id="orb-live-logo-c"');
-    expect(body).not.toContain('id="orb-live-logo-a"');
   });
 
   it("can read and write KV values", async () => {

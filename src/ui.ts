@@ -9,11 +9,6 @@ export type PageOptions = {
   bodyClass?: string;
   /** Current request path, used to mark the matching header nav link with aria-current. */
   currentPath?: string;
-  /**
-   * 連携チャネルのいずれかが配信中なら true。ヘッダー・フッターのロゴに
-   * LIVEバッジを出す。
-   */
-  live?: boolean;
 };
 
 const THEME_BOOTSTRAP = `(() => {
@@ -435,9 +430,6 @@ pre code { padding: 0; background: transparent; }
 :root[data-theme="dark"] .brand-orb {
   filter: drop-shadow(0 0 4px rgba(90, 170, 255, 0.5));
 }
-
-/* 赤ドットをリング・地の色から切り離すための縁取り。 */
-.brand-live-halo { fill: var(--bg); }
 
 .brand-live-pulse {
   animation: brand-live-pulse 2.4s ease-in-out infinite;
@@ -1057,14 +1049,12 @@ pre code { padding: 0; background: transparent; }
 .logo-swatch-light { border: 1px solid var(--border); background: #f8fafc; }
 .logo-swatch-light .brand { color: #0f1424; }
 .logo-swatch-light .brand-orb { filter: drop-shadow(0 3px 10px rgba(30, 80, 170, 0.25)); }
-.logo-swatch-light .brand-live-halo { fill: #f8fafc; }
 .logo-swatch-light .brand-word {
   background-image: linear-gradient(180deg, #3570d8 0%, #1a4aa8 45%, #0e2f72 100%);
   text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 .logo-swatch-dark { background: #0a1f3d; }
 .logo-swatch-dark .brand { color: #fff; }
-.logo-swatch-dark .brand-live-halo { fill: #0a1f3d; }
 .logo-swatch-dark .brand-orb { filter: drop-shadow(0 0 12px rgba(90, 170, 255, 0.6)) drop-shadow(0 0 30px rgba(60, 130, 255, 0.35)); }
 .logo-swatch-dark .brand-word {
   background-image: linear-gradient(180deg, #f2f9ff 0%, #d6ebff 26%, #9ec9f7 58%, #5a94e4 100%);
@@ -1269,55 +1259,44 @@ function escapeAttribute(value: string): string {
 /**
  * ブランドエンブレム(ワードマークの「O」の代わりとなるアイコン)のインライン
  * SVGを描く。青いグラデーションのリングだけで、内側には何も置かない
- * ——文字の O としてそのまま読める形。リングの色は配信状態に関わらず常に青
- * (固定のブランドカラー)で、配信中は赤いバッジが重なる。
+ * ——文字の O としてそのまま読める形。
  *
- * 配信中バッジには2つの形がある:
- * - 既定(コンパクト): リング右下に重ねる赤いドット。ヘッダー・フッターのように
- *   エンブレムが 20〜35px 程度にしかならない場所で使う
- * - `liveLabel`: 「LIVE」の文字が入る横長のピル。/logo ページの特大表示など、
- *   文字が潰れない大きさでだけ使う(ヘッダー実寸だと赤い染みにしか見えない)
+ * リング右下に重なる赤い「LIVE」チップはロゴの一部で、常に描く。
+ * 配信状態のインジケーターではないので、配信中かどうかでは変化しない。
+ * ヘッダー実寸(エンブレムが 20〜35px 程度)でも「LIVE」の字が潰れないよう、
+ * チップはエンブレムに対してかなり大きめに取ってある。
+ *
+ * `chip: false` はファビコン専用。16px 角ではチップが赤い染みにしかならず、
+ * リングの輪郭も潰すため、そこだけリング単体に落とす。
  *
  * ヘッダー・フッター・/logo ページなど同じレスポンス内で複数回描画されるため、
  * グラデーションのIDが衝突しないよう呼び出しごとに一意な uid を渡す。
  */
-function brandOrbSvg(
-  uid: string,
-  opts: { live?: boolean; liveLabel?: boolean } = {},
-): string {
-  const live = opts.live ?? false;
-  const liveLabel = opts.liveLabel ?? false;
+function brandOrbSvg(uid: string, opts: { chip?: boolean } = {}): string {
+  const chip = opts.chip ?? true;
   const ringId = `orb-ring-${uid}`;
   const liveId = `orb-live-${uid}`;
-  let liveBadge = "";
-  if (live && liveLabel) {
-    liveBadge = `<g>
-        <rect x="38" y="75" width="48" height="16.5" rx="8.25" fill="url(#${liveId})"/>
-        <circle class="brand-live-pulse" cx="46.5" cy="83.3" r="2.9" fill="#fff"/>
-        <text x="52" y="86.6" font-family="Arial, Helvetica, sans-serif" font-size="9.6" font-weight="800" letter-spacing="0.3" fill="#fff">LIVE</text>
-      </g>`;
-  } else if (live) {
-    // リングと地の色を切るための縁取りを1枚敷いてから、赤ドットを重ねる。
-    liveBadge = `<g>
-        <circle class="brand-live-halo" cx="76" cy="76" r="17"/>
-        <circle cx="76" cy="76" r="13" fill="url(#${liveId})"/>
-        <circle class="brand-live-pulse" cx="76" cy="76" r="4.6" fill="#fff"/>
-      </g>`;
-  }
-  return `<svg class="brand-orb${live ? " brand-live" : ""}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
+  const liveChip = chip
+    ? `<g>
+        <rect x="28" y="72" width="68" height="25" rx="12.5" fill="url(#${liveId})"/>
+        <circle class="brand-live-pulse" cx="41" cy="84.5" r="4.3" fill="#fff"/>
+        <text x="47.7" y="89.8" font-family="Arial, Helvetica, sans-serif" font-size="15.2" font-weight="800" letter-spacing="0.3" fill="#fff">LIVE</text>
+      </g>`
+    : "";
+  return `<svg class="brand-orb${chip ? " brand-live" : ""}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" aria-hidden="true" focusable="false">
     <defs>
       <linearGradient id="${ringId}" x1="15%" y1="0%" x2="85%" y2="100%">
         <stop offset="0%" stop-color="#a8e0ff"/>
         <stop offset="45%" stop-color="#5aa2ff"/>
         <stop offset="100%" stop-color="#2563d8"/>
       </linearGradient>
-      ${live ? `<linearGradient id="${liveId}" x1="20%" y1="0%" x2="80%" y2="100%">
+      ${chip ? `<linearGradient id="${liveId}" x1="20%" y1="0%" x2="80%" y2="100%">
         <stop offset="0%" stop-color="#f0403a"/>
         <stop offset="100%" stop-color="#d0201f"/>
       </linearGradient>` : ""}
     </defs>
     <circle cx="50" cy="50" r="39" fill="none" stroke="url(#${ringId})" stroke-width="10"/>
-    ${liveBadge}
+    ${liveChip}
   </svg>`;
 }
 
@@ -1327,15 +1306,12 @@ function brandOrbSvg(
  * アクセシブルネームは呼び出し側の `<a aria-label="orbsky ...">` に委ねるため、
  * SVG自体はaria-hiddenにしている。
  */
-export function brandLockup(
-  uid: string,
-  opts: { live?: boolean; liveLabel?: boolean } = {},
-): string {
-  return `${brandOrbSvg(uid, opts)}<span class="brand-word">rbsky</span>`;
+export function brandLockup(uid: string): string {
+  return `${brandOrbSvg(uid)}<span class="brand-word">rbsky</span>`;
 }
 
 function faviconHref(): string {
-  return `data:image/svg+xml,${encodeURIComponent(brandOrbSvg("fav"))}`;
+  return `data:image/svg+xml,${encodeURIComponent(brandOrbSvg("fav", { chip: false }))}`;
 }
 
 export function renderHtmlPage(
@@ -1345,7 +1321,6 @@ export function renderHtmlPage(
 ): string {
   const session = options.session ?? null;
   const currentPath = options.currentPath ?? "";
-  const live = options.live ?? false;
   const mainClass = options.mainClass ? ` ${escapeAttribute(options.mainClass)}` : "";
   const bodyClass = options.bodyClass
     ? ` class="${escapeAttribute(options.bodyClass)}"`
@@ -1375,7 +1350,7 @@ export function renderHtmlPage(
 <body${bodyClass}>
   <header class="site-header">
     <div class="header-inner">
-      <a class="brand" href="/" aria-label="${live ? "orbsky トップ(配信中)" : "orbsky トップ"}">${brandLockup("h", { live })}</a>
+      <a class="brand" href="/" aria-label="orbsky トップ">${brandLockup("h")}</a>
       <button class="theme-toggle nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="site-nav">
         <span data-nav-toggle-label>メニュー</span>
       </button>
@@ -1390,7 +1365,7 @@ export function renderHtmlPage(
   <footer class="site-footer">
     <div class="footer-inner">
       <div class="footer-brand">
-        <a class="brand brand-sm" href="/" aria-label="${live ? "orbsky トップ(配信中)" : "orbsky トップ"}">${brandLockup("f", { live })}</a>
+        <a class="brand brand-sm" href="/" aria-label="orbsky トップ">${brandLockup("f")}</a>
         <span class="footer-tagline">— Twitchの配信をBlueskyへ</span>
       </div>
       <nav class="footer-nav" aria-label="フッターナビゲーション">
