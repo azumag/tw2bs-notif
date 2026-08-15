@@ -59,6 +59,28 @@ export async function getLiveStream(
   return row ?? null;
 }
 
+/**
+ * 複数チャネルの配信中レコードをまとめて取得する。
+ * マルチチャネル利用時、ユーザーに紐づく全チャネルの生存確認をまとめて行うのに使う。
+ */
+export async function getLiveStreamsByChannels(
+  env: AppEnv,
+  twitchChannelIds: string[],
+): Promise<Map<string, LiveStream>> {
+  const result = new Map<string, LiveStream>();
+  if (twitchChannelIds.length === 0) return result;
+  const placeholders = twitchChannelIds.map(() => "?").join(", ");
+  const { results } = await env.DB.prepare(
+    `SELECT ${COLUMNS} FROM live_streams WHERE twitch_channel_id IN (${placeholders})`,
+  )
+    .bind(...twitchChannelIds)
+    .all<LiveStreamRow>();
+  for (const row of results) {
+    result.set(row.twitchChannelId, row);
+  }
+  return result;
+}
+
 /** 配信終了を記録する。実際に消えたときだけ true。 */
 export async function markStreamOffline(
   env: AppEnv,
