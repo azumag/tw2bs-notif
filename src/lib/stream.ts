@@ -1,5 +1,5 @@
 import type { AppEnv } from "../types";
-import { STREAM_OFFLINE, STREAM_ONLINE, STREAM_RENEW } from "../types";
+import { STREAM_ONLINE, STREAM_RENEW } from "../types";
 import {
   clearLiveStatus,
   createStreamPost,
@@ -11,9 +11,14 @@ import {
   getStreamStatesBatch,
   type StreamState,
 } from "./twitch";
-import { findConnectionsByChannel } from "./connections";
+import {
+  findConnectionsByChannel,
+  listConnections,
+  type Connection,
+} from "./connections";
 import {
   getLiveStream,
+  getLiveStreamsByChannels,
   markStreamLive,
   markStreamOffline,
   touchLiveStream,
@@ -91,90 +96,200 @@ async function scheduleRenewal(
   });
 }
 
-/**
- * 配信中バッジを立て、必要なら通常ポストも作成する。
- * online イベントと延長の両方から呼ぶ。
- */
-async function applyLiveStatus(
-  env: AppEnv,
-  input: {
-    broadcasterUserId: string;
-    broadcasterUserLogin?: string;
-    /** 通常ポストを作成するか(延長時は作らない) */
-    post: boolean;
-    /** 取得済みの配信情報。延長時はバッチ取得の結果を渡して問い合わせを省く */
-    stream?: StreamState | null;
-  },
-): Promise<void> {
-  const connections = await findConnectionsByChannel(
-    env,
-    input.broadcasterUserId,
-  );
-  if (connections.length === 0) return;
+/** Bluesky の配信中ステータス(embed)に必要な情報。 */
+interface StreamInfo {
+  title?: string;
+  category?: string;
+  thumbnailUrl?: string;
+  login?: string;
+}
 
+/**
+ * チャネルのタイトル・カテゴリ・サムネイルを取得する。
+ *
+ * stream.online の Webhook にはタイトルもカテゴリも含まれず、Helix /streams は
+ * 配信開始直後にはまだこの配信を返さないことがある。その場合 title/category が
+ * 空のまま扱われてしまうため、チャネル情報(/channels)で補う。
+ *
+ * `opts.stream` を渡すとバッチ取得済みの結果を再利用し、問い合わせを省く。
+ */
+async function fetchStreamInfo(
+  env: AppEnv,
+  channelId: string,
+  opts?: { stream?: StreamState | null; loginOverride?: string },
+): Promise<StreamInfo> {
   const stream =
-    input.stream !== undefined
-      ? input.stream
-      : await getStreamStatesBatch(env, [input.broadcasterUserId])
-          .then((m) => m.get(input.broadcasterUserId) ?? null)
+    opts?.stream !== undefined
+      ? opts.stream
+      : await getStreamStatesBatch(env, [channelId])
+          .then((m) => m.get(channelId) ?? null)
           .catch((err) => {
             logError(C, "stream poll failed", err);
             return null;
           });
-  // stream.online の Webhook にはタイトルもカテゴリも含まれず、Helix /streams は
-  // 配信開始直後にはまだこの配信を返さないことがある。その場合 title/category が
-  // 空のまま投稿されてしまうため、チャネル情報(/channels)で補う。
   let title = stream?.title;
   let category = stream?.gameName;
   if (!title || !category) {
-    const channel = await getChannelInformation(env, input.broadcasterUserId)
-      .catch((err) => {
-        logError(C, "channel info fetch failed", err);
-        return null;
-      });
+    const channel = await getChannelInformation(env, channelId).catch((err) => {
+      logError(C, "channel info fetch failed", err);
+      return null;
+    });
     if (channel) {
       title = title || channel.title;
       category = category || channel.gameName;
     }
   }
+  return {
+    title,
+    category,
+    thumbnailUrl: thumbnailUrl(stream),
+    login: opts?.loginOverride ?? stream?.userLogin,
+  };
+}
 
-  for (const connection of connections) {
-    const login =
-      input.broadcasterUserLogin ?? stream?.userLogin ?? connection.twitchLogin;
-    const statusInput = {
-      uri: twitchUrl(login),
-      title,
-      thumbnailUrl: thumbnailUrl(stream),
-    };
-    const session = await getSessionForUser(env, connection.userId);
-    if (!session) {
-      logInfo(C, "user has no bsky session, skipped", {
-        userId: connection.userId,
-      });
-      continue;
-    }
-    await setLiveStatus(session, statusInput);
-    if (input.post) {
-      const postOnStartEnabled =
-        env.BSKY_POST_ON_START === "true" && connection.postOnStart;
-      if (postOnStartEnabled) {
-        try {
-          const text = formatStreamPostText(connection.postTemplate, {
-            title,
-            category,
-            channel: connection.twitchDisplayName,
-            url: statusInput.uri,
-          });
-          await createStreamPost(session, { ...statusInput, text });
-        } catch (err) {
-          logError(C, "stream post failed", err, {
-            userId: connection.userId,
-          });
-        }
-      }
-    }
-    logInfo(C, "set live", { userId: connection.userId });
+/** チャネル設定に従って通常の配信開始ポストを作成する(失敗してもバッジ設定には影響させない)。 */
+async function maybeCreateStreamPost(
+  env: AppEnv,
+  connection: Connection,
+  info: StreamInfo,
+): Promise<void> {
+  const postOnStartEnabled =
+    env.BSKY_POST_ON_START === "true" && connection.postOnStart;
+  if (!postOnStartEnabled) return;
+
+  const session = await getSessionForUser(env, connection.userId);
+  if (!session) {
+    logInfo(C, "user has no bsky session, post skipped", {
+      userId: connection.userId,
+    });
+    return;
   }
+  const uri = twitchUrl(info.login ?? connection.twitchLogin);
+  try {
+    const text = formatStreamPostText(connection.postTemplate, {
+      title: info.title,
+      category: info.category,
+      channel: connection.twitchDisplayName,
+      url: uri,
+    });
+    await createStreamPost(session, {
+      uri,
+      title: info.title,
+      thumbnailUrl: info.thumbnailUrl,
+      text,
+    });
+  } catch (err) {
+    logError(C, "stream post failed", err, { userId: connection.userId });
+  }
+}
+
+/** ユーザーの配信中チャネルのうち、代表として選ばれたもの。 */
+interface LiveCandidate {
+  connection: Connection;
+  streamId: string;
+  startedAt: string | null;
+}
+
+function startedAtMs(startedAt: string | null): number {
+  if (!startedAt) return -Infinity;
+  const ms = Date.parse(startedAt);
+  return Number.isNaN(ms) ? -Infinity : ms;
+}
+
+/**
+ * どちらの配信を代表とすべきかを判定する。「最後に配信を開始したチャネル」を
+ * 優先し、startedAt が同一(または欠損)の場合はチャネルIDで決定的に選ぶ
+ * (tie-break。同時刻に複数チャネルが開始しても結果が不定にならないようにする)。
+ */
+function isMoreRecent(a: LiveCandidate, b: LiveCandidate): boolean {
+  const aMs = startedAtMs(a.startedAt);
+  const bMs = startedAtMs(b.startedAt);
+  if (aMs !== bMs) return aMs > bMs;
+  return a.connection.twitchChannelId > b.connection.twitchChannelId;
+}
+
+/**
+ * ユーザーに紐づくチャネルのうち、現在配信中のものを確認し、Bluesky に表示すべき
+ * 代表チャネルを1つ選ぶ。配信中のチャネルが無ければ null。
+ */
+async function findRepresentative(
+  env: AppEnv,
+  userId: string,
+): Promise<LiveCandidate | null> {
+  const connections = await listConnections(env, userId);
+  if (connections.length === 0) return null;
+  const liveByChannel = await getLiveStreamsByChannels(
+    env,
+    connections.map((c) => c.twitchChannelId),
+  );
+  let best: LiveCandidate | null = null;
+  for (const connection of connections) {
+    const live = liveByChannel.get(connection.twitchChannelId);
+    if (!live) continue;
+    const candidate: LiveCandidate = {
+      connection,
+      streamId: live.streamId,
+      startedAt: live.startedAt,
+    };
+    if (!best || isMoreRecent(candidate, best)) best = candidate;
+  }
+  return best;
+}
+
+/**
+ * 代表チャネルの判定結果を Bluesky に反映する。代表が無ければステータスを削除し、
+ * あれば setLiveStatus で書き込む。`hint` が代表チャネルと一致する場合は
+ * 取得済みの StreamInfo を再利用し、問い合わせを省く。
+ */
+async function applyRepresentative(
+  env: AppEnv,
+  userId: string,
+  representative: LiveCandidate | null,
+  hint?: { channelId: string; info: StreamInfo },
+): Promise<void> {
+  const session = await getSessionForUser(env, userId);
+  if (!session) {
+    logInfo(C, "user has no bsky session, reconcile skipped", { userId });
+    return;
+  }
+  if (!representative) {
+    await clearLiveStatus(session);
+    logInfo(C, "cleared live status (no live channel)", { userId });
+    return;
+  }
+  const { connection, streamId } = representative;
+  const info =
+    hint?.channelId === connection.twitchChannelId
+      ? hint.info
+      : await fetchStreamInfo(env, connection.twitchChannelId);
+  await setLiveStatus(session, {
+    uri: twitchUrl(info.login ?? connection.twitchLogin),
+    title: info.title,
+    thumbnailUrl: info.thumbnailUrl,
+  });
+  logInfo(C, "set live", {
+    userId,
+    channelId: connection.twitchChannelId,
+    streamId,
+  });
+}
+
+/**
+ * ユーザー単位で Bluesky の配信中ステータスを調停する。
+ *
+ * Bluesky の配信中ステータスは1ユーザーにつき1レコードしか持てないため、
+ * マルチチャネル利用時は「最後に配信を開始したチャネル」だけを代表として表示する。
+ * 代表が既に正しいチャネルを指している場合でも setLiveStatus を呼び直す
+ * (renewal による延長を兼ねるため)。呼び出し側で「代表チャネルの変化がない
+ * 場合は呼ばない」という判断をすることで、不要な書き込みを避けている。
+ */
+export async function reconcileUserLiveStatus(
+  env: AppEnv,
+  userId: string,
+  hint?: { channelId: string; info: StreamInfo },
+): Promise<void> {
+  const representative = await findRepresentative(env, userId);
+  await applyRepresentative(env, userId, representative, hint);
 }
 
 export async function processStreamEvent(
@@ -208,11 +323,24 @@ export async function processStreamEvent(
         logInfo(C, "duplicate online event, skipped", { streamId });
         return;
       }
-      await applyLiveStatus(env, {
-        broadcasterUserId: event.broadcasterUserId,
-        broadcasterUserLogin: event.broadcasterUserLogin,
-        post: true,
+
+      const info = await fetchStreamInfo(env, event.broadcasterUserId, {
+        loginOverride: event.broadcasterUserLogin,
       });
+
+      // 通常の配信開始ポストはチャネル単位(このチャネルの全connection)で作る。
+      // 代表判定とは無関係に、各ユーザーのチャネル設定に従う。
+      for (const connection of connections) {
+        await maybeCreateStreamPost(env, connection, info);
+      }
+      // Blueskyの配信中バッジはユーザー単位で調停する(他チャネルが既に代表なら上書きしない)。
+      for (const connection of connections) {
+        await reconcileUserLiveStatus(env, connection.userId, {
+          channelId: event.broadcasterUserId,
+          info,
+        });
+      }
+
       // 4時間で失効するので、その前に延長する予約を入れる
       await scheduleRenewal(env, event.broadcasterUserId, streamId);
       return;
@@ -240,12 +368,31 @@ export async function processStreamEvent(
       });
       return;
     }
-    await markStreamOffline(env, event.broadcasterUserId);
+
+    // live_streams から消す前に「このチャネルが各ユーザーの代表だったか」を控えておく。
+    // 非代表チャネルが終了しただけなら、他ユーザーが表示中の代表を消してはいけない。
+    const wasRepresentative = new Map<string, boolean>();
     for (const connection of connections) {
-      const session = await getSessionForUser(env, connection.userId);
-      if (!session) continue;
-      await clearLiveStatus(session);
-      logInfo(C, "cleared live status", { userId: connection.userId });
+      const before = await findRepresentative(env, connection.userId);
+      wasRepresentative.set(
+        connection.userId,
+        before?.connection.twitchChannelId === event.broadcasterUserId,
+      );
+    }
+
+    await markStreamOffline(env, event.broadcasterUserId);
+
+    for (const connection of connections) {
+      if (!wasRepresentative.get(connection.userId)) {
+        logInfo(C, "non-representative channel ended, status kept", {
+          userId: connection.userId,
+          channelId: event.broadcasterUserId,
+        });
+        continue;
+      }
+      // 代表チャネルが終了した: 他にまだ配信中のチャネルがあればそちらへ切り替え、
+      // 無ければステータスを削除する(reconcileUserLiveStatus が両方担う)。
+      await reconcileUserLiveStatus(env, connection.userId);
     }
   } catch (err) {
     // 失敗してもハンドラの応答には影響させない(waitUntil内で実行される)
@@ -265,6 +412,10 @@ export async function processStreamEvent(
  *
  * 生存確認は Helix へ1リクエスト100チャネルまでまとめられるので、
  * バッチ内の延長分は必ずまとめて問い合わせる。
+ *
+ * Bluesky へ書き込むのは、そのチャネルが現在ユーザーの代表である場合だけ。
+ * 非代表チャネルの renewal は生存確認と次回スケジュールの継続のみ行い、
+ * 代表が表示しているステータスを奪わない。
  */
 export async function processStreamRenewals(
   env: AppEnv,
@@ -301,13 +452,26 @@ export async function processStreamRenewals(
           await markStreamOffline(env, channelId);
           continue;
         }
-        await applyLiveStatus(env, {
-          broadcasterUserId: channelId,
-          broadcasterUserLogin: stream.userLogin,
-          post: false,
+
+        const connections = await findConnectionsByChannel(env, channelId);
+        let info: StreamInfo | null = null;
+        for (const connection of connections) {
+          const representative = await findRepresentative(env, connection.userId);
+          if (representative?.connection.twitchChannelId !== channelId) {
+            logInfo(C, "non-representative renewal, bsky untouched", {
+              userId: connection.userId,
+              channelId,
+            });
+            continue;
+          }
           // バッチ取得済みの結果をそのまま使う(チャネルごとの再問い合わせを避ける)
-          stream,
-        });
+          info ??= await fetchStreamInfo(env, channelId, { stream });
+          await applyRepresentative(env, connection.userId, representative, {
+            channelId,
+            info,
+          });
+        }
+
         await touchLiveStream(env, channelId);
         await scheduleRenewal(env, channelId, renewal.streamId);
         logInfo(C, "renewed live status", { channelId, streamId: stream.id });

@@ -3,6 +3,7 @@ import {
   isStreamRenewal,
   processStreamEvent,
   processStreamRenewals,
+  reconcileUserLiveStatus,
 } from "./lib/stream";
 import type { AppEnv } from "./types";
 import {
@@ -35,7 +36,6 @@ import {
   updateConnectionPostingSettings,
   updateConnectionPostOnStart,
 } from "./lib/connections";
-import { clearLiveStatus, getSessionForUser } from "./lib/bluesky";
 import {
   activateCode,
   deactivateEntitlements,
@@ -955,13 +955,12 @@ async function handleDisconnectChannel(
           logError("channels", "removeChannelSubscriptions failed", err);
         },
       );
-      // 配信中なら Bluesky ステータスを解除する(stale record の掃除は cron の自己修復も行う)
-      const sessionForBsky = await getSessionForUser(env, session.twitchUserId);
-      if (sessionForBsky) {
-        await clearLiveStatus(sessionForBsky).catch((err) => {
-          logError("channels", "clearLiveStatus failed", err);
-        });
-      }
+      // Blueskyの配信中ステータスをユーザー単位で調停する。解除したチャネルが
+      // 代表だった場合、他にまだ配信中のチャネルがあればそちらへ切り替わり、
+      // 無ければ削除される(マルチチャネル利用時に他チャネルの表示を消さないため)。
+      await reconcileUserLiveStatus(env, session.twitchUserId).catch((err) => {
+        logError("channels", "reconcileUserLiveStatus failed", err);
+      });
       logInfo("channels", "disconnected channel", { connectionId });
     }
     return new Response(null, { status: 302, headers: { Location: CHANNELS_PATH } });

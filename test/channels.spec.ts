@@ -13,6 +13,7 @@ import { migrations } from "./migrations";
 const blueskyModule = await import("../src/lib/bluesky");
 vi.mock("../src/lib/bluesky", () => ({
   clearLiveStatus: vi.fn(async () => {}),
+  setLiveStatus: vi.fn(async () => {}),
   getSessionForUser: vi.fn(async () => ({
     did: "did:plc:test",
     fetchHandler: async () => new Response(),
@@ -150,6 +151,7 @@ beforeEach(async () => {
   await env.STATE.put("twitch:webhook_secret", "webhook-secret");
   await env.STATE.delete("twitch:token");
   vi.mocked(blueskyModule.clearLiveStatus).mockReset();
+  vi.mocked(blueskyModule.setLiveStatus).mockReset();
   vi.mocked(blueskyModule.getSessionForUser).mockReset();
   vi.mocked(blueskyModule.getSessionForUser).mockResolvedValue({
     did: "did:plc:test",
@@ -1146,6 +1148,66 @@ describe("チャネル連携ページ", () => {
     expect(deletedIds.sort()).toEqual(["sub-offline", "sub-online"]);
     // Bluesky ステータス解除が呼ばれた
     expect(blueskyModule.clearLiveStatus).toHaveBeenCalledTimes(1);
+  });
+
+  it("マルチチャネル利用時、非代表チャネルを解除しても代表チャネルのBluesky表示は消えない", async () => {
+    mockFetch({
+      "id.twitch.tv/oauth2/token": async () =>
+        jsonResponse({
+          access_token: "app-token",
+          expires_in: 5000000,
+          token_type: "bearer",
+          scope: [],
+        }),
+      "eventsub/subscriptions": async () => jsonResponse({ data: [] }),
+      "api.twitch.tv/helix/streams": async () => jsonResponse({ data: [] }),
+      "api.twitch.tv/helix/channels": async () => jsonResponse({ data: [] }),
+    });
+    const env0 = makeEnv();
+    const { cookie, csrf } = await loginAs(env0);
+
+    // 非代表チャネル(A, 先に開始)と代表チャネル(B, 後から開始)を用意
+    const insertedA = await env0.DB.prepare(
+      `INSERT INTO connections (user_id, twitch_channel_id, twitch_login, twitch_display_name)
+       VALUES (?, ?, ?, ?)`,
+    )
+      .bind("12345", "111", "channel_a", "チャンネルA")
+      .run();
+    const connectionIdA = insertedA.meta.last_row_id;
+    await env0.DB.prepare(
+      `INSERT INTO connections (user_id, twitch_channel_id, twitch_login, twitch_display_name)
+       VALUES (?, ?, ?, ?)`,
+    )
+      .bind("12345", "222", "channel_b", "チャンネルB")
+      .run();
+    await env0.DB.prepare(
+      `INSERT INTO live_streams (twitch_channel_id, stream_id, started_at)
+       VALUES ('111', 'stream-a', '2026-08-15T10:00:00Z'),
+              ('222', 'stream-b', '2026-08-15T10:30:00Z')`,
+    ).run();
+
+    // 非代表チャネル(A)を解除する
+    const res = await fetchAs(
+      env0,
+      new Request("https://example.com/channels/disconnect", {
+        method: "POST",
+        headers: { Cookie: cookie },
+        body: new URLSearchParams({ csrf, connection_id: String(connectionIdA) }),
+      }),
+    );
+    expect(res.status).toBe(302);
+
+    const remaining = await env0.DB.prepare(
+      "SELECT twitch_channel_id AS channelId FROM connections",
+    ).all<{ channelId: string }>();
+    expect(remaining.results).toEqual([{ channelId: "222" }]);
+
+    // 代表(B)の表示は消えず、必要ならBの情報で再確認されるだけ
+    expect(blueskyModule.clearLiveStatus).not.toHaveBeenCalled();
+    expect(blueskyModule.setLiveStatus).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ uri: "https://www.twitch.tv/channel_b" }),
+    );
   });
 
   it("disconnect の誤った CSRF は拒否される", async () => {
