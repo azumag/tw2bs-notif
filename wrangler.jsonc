@@ -1,62 +1,20 @@
 {
   "name": "orbsky",
   "compatibility_date": "2026-08-01",
-  "main": "src/index.ts",
-  "triggers": {
-    "crons": []
-  },
+  "main": "src/worker.ts",
+  "triggers": { "crons": [] },
   "vars": {
     "BSKY_POST_ON_START": "true",
     "TWITCH_OAUTH_REDIRECT_URL": "https://orbsky.bluemoon.works/auth/twitch/callback",
     "EVENTSUB_CALLBACK_URL": "https://orbsky.bluemoon.works/twitch/eventsub"
   },
-  "routes": [
-    {
-      "pattern": "orbsky.bluemoon.works",
-      "custom_domain": true
-    }
-  ],
-  "secrets": {
-    "required": [
-      "TWITCH_CLIENT_ID",
-      "TWITCH_CLIENT_SECRET",
-      "TWITCH_BROADCASTER_ID",
-      "BSKY_HANDLE",
-      "BSKY_APP_PASSWORD",
-      "ENCRYPTION_KEY"
-    ]
-  },
+  "routes": [{ "pattern": "orbsky.bluemoon.works", "custom_domain": true }],
+  "secrets": { "required": ["TWITCH_CLIENT_ID", "TWITCH_CLIENT_SECRET", "TWITCH_BROADCASTER_ID", "BSKY_HANDLE", "BSKY_APP_PASSWORD", "ENCRYPTION_KEY"] },
   "queues": {
-    "producers": [
-      {
-        "binding": "EVENTS",
-        "queue": "eventsub-events"
-      }
-    ],
-    "consumers": [
-      {
-        "queue": "eventsub-events",
-        "max_batch_size": 10,
-        "max_batch_timeout": 10
-      }
-    ]
+    "producers": [{ "binding": "EVENTS", "queue": "eventsub-events" }],
+    "consumers": [{ "queue": "eventsub-events", "max_batch_size": 10, "max_batch_timeout": 10 }]
   },
-  "d1_databases": [
-    {
-      "binding": "DB",
-      "database_name": "tw2bs-notif-db",
-      "database_id": "a44c187e-de8c-4253-bead-80d95674c55f",
-      "migrations_dir": "migrations"
-    }
-  ],
-  "kv_namespaces": [
-    {
-      "binding": "STATE",
-      "id": "6e510c288304489baa35db6b569db360",
-      "preview_id": "93550d4ef90d40b6ac94dc705e3c3fd8"
-    }
-  ],
-  "observability": {
-    "enabled": true
-  }
+  "d1_databases": [{ "binding": "DB", "database_name": "tw2bs-notif-db", "database_id": "a44c187e-de8c-4253-bead-80d95674c55f", "migrations_dir": "migrations" }],
+  "kv_namespaces": [{ "binding": "STATE", "id": "6e510c288304489baa35db6b569db360", "preview_id": "93550d4ef90d40b6ac94dc705e3c3fd8" }],
+  "observability": { "enabled": true }
 }
