@@ -4,6 +4,7 @@ import { logError, logInfo } from "./logger";
 import { getSession } from "./session";
 import {
   ensureChannelUpdateSubscription,
+  removeChannelUpdateSubscriptionIfUnused,
   getMetadataSharingSetting,
   saveMetadataSharingSetting,
   seedChannelMetadata,
@@ -51,6 +52,9 @@ export async function saveMetadataSettings(request: Request, env: AppEnv): Promi
     const secret = await env.STATE.get(WEBHOOK_SECRET_KEY);
     if (secret) await ensureChannelUpdateSubscription(env, setting.twitchChannelId, env.EVENTSUB_CALLBACK_URL, secret)
       .catch((err) => logError("settings", "channel.update subscription ensure failed", err, { connectionId }));
+  } else {
+    await removeChannelUpdateSubscriptionIfUnused(env, setting.twitchChannelId)
+      .catch((err) => logError("settings", "unused channel.update subscription removal failed", err, { connectionId }));
   }
   logInfo("settings", "updated metadata sharing preference", { connectionId, titleAction, categoryAction, minutes });
   return new Response(null, { status: 302, headers: { Location: `${METADATA_SETTINGS_PATH}?saved=1#metadata-${connectionId}` } });

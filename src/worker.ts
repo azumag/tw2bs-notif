@@ -14,7 +14,7 @@ import {
   decorateChannelsResponse,
   renderMetadataSettings,
 } from "./lib/metadata-ui";
-import { removeChannelUpdateSubscription } from "./lib/metadata-settings";
+import { removeChannelUpdateSubscriptionIfUnused } from "./lib/metadata-settings";
 import {
   isStreamRenewal,
   processStreamEvent,
@@ -42,7 +42,7 @@ export default {
       : null;
     const response = await baseWorker.fetch(request, env, ctx);
     if (disconnectedChannel && response.status >= 300 && response.status < 400) {
-      ctx.waitUntil(removeChannelUpdateSubscription(env, disconnectedChannel).catch((err) =>
+      ctx.waitUntil(removeChannelUpdateSubscriptionIfUnused(env, disconnectedChannel).catch((err) =>
         logError("channels", "remove channel.update failed", err, { channelId: disconnectedChannel }),
       ));
     }

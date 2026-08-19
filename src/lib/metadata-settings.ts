@@ -132,3 +132,17 @@ export async function removeChannelUpdateSubscription(env: AppEnv, channelId: st
     }
   }
 }
+export async function channelNeedsUpdateSubscription(env: AppEnv, channelId: string): Promise<boolean> {
+  const row = await env.DB.prepare(
+    `SELECT 1 AS needed FROM connections
+     WHERE twitch_channel_id = ?
+       AND (title_change_action != 'off' OR category_change_action != 'off')
+     LIMIT 1`,
+  ).bind(channelId).first<{ needed: number }>();
+  return Boolean(row);
+}
+
+export async function removeChannelUpdateSubscriptionIfUnused(env: AppEnv, channelId: string): Promise<void> {
+  if (await channelNeedsUpdateSubscription(env, channelId)) return;
+  await removeChannelUpdateSubscription(env, channelId);
+}

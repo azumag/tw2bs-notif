@@ -4,6 +4,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../src/worker";
 import type { AppEnv } from "../src/types";
 import { createSession } from "../src/lib/session";
+import { channelNeedsUpdateSubscription } from "../src/lib/metadata-settings";
 import { migrations } from "./migrations";
 
 function makeEnv(): AppEnv {
@@ -42,7 +43,7 @@ beforeEach(async () => {
   }));
 });
 
-describe("配信情報到昖耭定", () => {
+describe("配信情報変更設定", () => {
   it("action・N分・テンプレートを保存し channel.update を購読する", async () => {
     const env0 = makeEnv();
     const inserted = await env0.DB.prepare(`INSERT INTO connections (user_id, twitch_channel_id, twitch_login, twitch_display_name) VALUES ('12345','12345','azumagbanjo','あずまぐ')`).run();
@@ -72,4 +73,22 @@ describe("配信情報到昖耭定", () => {
     const baseline = await env0.DB.prepare(`SELECT title, category FROM channel_metadata WHERE twitch_channel_id = '12345'`).first<{ title: string; category: string }>();
     expect(baseline).toEqual({ title: "現在のタイトル", category: "Music" });
   });
+
+  it("同じTwitchチャネルを使うconnectionが残る間は購読を必要と判定する", async () => {
+    const env0 = makeEnv();
+    await env0.DB.prepare(
+      `INSERT INTO connections
+         (user_id, twitch_channel_id, twitch_login, twitch_display_name, title_change_action)
+       VALUES ('user-a', '12345', 'azumagbanjo', 'A', 'status_only'),
+              ('user-b', '12345', 'azumagbanjo', 'B', 'off')`,
+    ).run();
+
+    await expect(channelNeedsUpdateSubscription(env0, "12345")).resolves.toBe(true);
+    await env0.DB.prepare(
+      `UPDATE connections SET title_change_action = 'off', category_change_action = 'off'
+       WHERE twitch_channel_id = '12345'`,
+    ).run();
+    await expect(channelNeedsUpdateSubscription(env0, "12345")).resolves.toBe(false);
+  });
+
 });
