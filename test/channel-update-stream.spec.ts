@@ -66,7 +66,7 @@ describe("channel.update sharing", () => {
   });
 
   it("N分以内の連続変更は古いtokenを無効化して1ポストにまとめる", async () => {
-    const send = vi.fn(async () => {});
+    const send = vi.fn(async (_message: unknown, _options?: unknown) => {});
     const env0 = makeEnv(send);
     await setup(env0, true);
     mockTwitch();
