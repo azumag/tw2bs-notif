@@ -1,5 +1,6 @@
 import type { AppEnv } from "../types";
 import { EVENTSUB_PATH, WEBHOOK_SECRET_KEY, verifyMessageSignature } from "./eventsub";
+import { BSKY_JWKS_PATH, getBskyPublicJwks } from "./bsky-oauth";
 import { logError } from "./logger";
 import { CHANNEL_UPDATE, type ChannelUpdateQueueMessage } from "./metadata-types";
 
@@ -10,7 +11,30 @@ export async function handleChannelUpdateEventSub(
   env: AppEnv,
   ctx: ExecutionContext,
 ): Promise<Response | null> {
-  if (new URL(request.url).pathname !== EVENTSUB_PATH || request.method !== "POST") return null;
+  const url = new URL(request.url);
+  if (url.pathname !== EVENTSUB_PATH) return null;
+
+  // confidential OAuth client の公開鍵。EventSub は POST のため、GET のみを
+  // ここで処理しても Twitch webhook と競合しない。
+  if (
+    request.method === "GET" &&
+    `${url.pathname}${url.search}` === BSKY_JWKS_PATH
+  ) {
+    try {
+      return new Response(JSON.stringify(await getBskyPublicJwks(env)), {
+        status: 200,
+        headers: {
+          "Content-Type": "application/jwk-set+json; charset=utf-8",
+          "Cache-Control": "public, max-age=300",
+        },
+      });
+    } catch (err) {
+      logError("bsky", "jwks response failed", err);
+      return new Response("JWKS unavailable", { status: 500 });
+    }
+  }
+
+  if (request.method !== "POST") return null;
   const rawBody = await request.clone().text();
   let payload: { subscription?: { type?: string }; event?: Record<string, unknown> };
   try { payload = JSON.parse(rawBody) as typeof payload; } catch { return null; }
