@@ -29,17 +29,21 @@ FROM bsky_sessions bs
 JOIN users u ON u.twitch_user_id = bs.twitch_user_id
 WHERE bs.twitch_user_id <> '';
 
--- セッションとユーザー紐付けを分離し、OAuth callback 中の未紐付けセッションが
--- UNIQUEな空文字で衝突しないようにする。
+-- セッションとユーザー紐付けの正本は bsky_connections へ移す。
+-- デプロイは migration → Worker の順なので、旧Workerが短時間動いても壊れないよう
+-- twitch_user_id 列は互換用として nullable・非UNIQUEで残す。新Workerは読み書きしない。
+-- nullable にすることで、新Workerの未紐付けセッション同士も衝突しない。
 CREATE TABLE bsky_sessions_v2 (
   did TEXT PRIMARY KEY,
+  twitch_user_id TEXT,
   session_json_enc TEXT NOT NULL,
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
 
-INSERT INTO bsky_sessions_v2 (did, session_json_enc, created_at, updated_at)
-SELECT did, session_json_enc, created_at, updated_at
+INSERT INTO bsky_sessions_v2
+  (did, twitch_user_id, session_json_enc, created_at, updated_at)
+SELECT did, twitch_user_id, session_json_enc, created_at, updated_at
 FROM bsky_sessions;
 
 DROP TABLE bsky_sessions;
