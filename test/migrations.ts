@@ -7,6 +7,7 @@ import postPreferenceSql from "../migrations/0006_post-preference.sql?raw";
 import channelPostingSql from "../migrations/0007_channel-posting.sql?raw";
 import liveStreamsSql from "../migrations/0008_live-streams.sql?raw";
 import channelUpdateSharingSql from "../migrations/0009_channel-update-sharing.sql?raw";
+import bskyConfidentialOauthSql from "../migrations/0010_bsky-confidential-oauth.sql?raw";
 
 export interface TestMigration { name: string; queries: string[]; }
 function splitQueries(sql: string): string[] {
@@ -22,4 +23,5 @@ export const migrations: TestMigration[] = [
   { name: "0007_channel-posting", queries: splitQueries(channelPostingSql) },
   { name: "0008_live-streams", queries: splitQueries(liveStreamsSql) },
   { name: "0009_channel-update-sharing", queries: splitQueries(channelUpdateSharingSql) },
+  { name: "0010_bsky-confidential-oauth", queries: splitQueries(bskyConfidentialOauthSql) },
 ];
