@@ -75,7 +75,7 @@ describe("confidential client metadata と JWKS", () => {
     expect(first.keys).toHaveLength(1);
     expect(first.keys[0].kid).toBeTruthy();
     expect(first.keys[0].alg).toBe("ES256");
-    expect(first.keys[0]).not.toHaveProperty("d");
+    expect(JSON.stringify(first.keys[0])).not.toContain('"d"');
     expect(second.keys[0].kid).toBe(first.keys[0].kid);
 
     const row = await env0.DB.prepare(
@@ -106,6 +106,7 @@ describe("confidential client metadata と JWKS", () => {
     expect(client.jwks?.keys[0]?.kid).toBe(jwks.keys[0].kid);
   });
 });
+
 
 describe("Bluesky 接続状態", () => {
   it("旧セッションの紐付けを再認証待ちとして保持し、再連携で有効化できる", async () => {
