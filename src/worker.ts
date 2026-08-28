@@ -2,6 +2,7 @@ import baseWorker from "./index";
 import type { AppEnv } from "./types";
 import { EVENTSUB_PATH } from "./lib/eventsub";
 import { logError } from "./lib/logger";
+import { BSKY_JWKS_PATH, getBskyPublicJwks } from "./lib/bsky-oauth";
 import { handleChannelUpdateEventSub } from "./lib/metadata-eventsub";
 import { processMetadataQueueMessage } from "./lib/metadata-processing";
 import { isMetadataQueueMessage, type MetadataQueueMessage } from "./lib/metadata-types";
@@ -30,6 +31,20 @@ type WorkerQueueMessage = QueueMessage | MetadataQueueMessage;
 export default {
   async fetch(request: Request, env: AppEnv, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+    if (url.pathname === BSKY_JWKS_PATH && request.method === "GET") {
+      try {
+        return new Response(JSON.stringify(await getBskyPublicJwks(env)), {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "Cache-Control": "public, max-age=300",
+          },
+        });
+      } catch (err) {
+        logError("bsky", "jwks response failed", err);
+        return new Response("JWKS unavailable", { status: 500 });
+      }
+    }
     if (url.pathname === EVENTSUB_PATH) {
       const metadataResponse = await handleChannelUpdateEventSub(request, env, ctx);
       if (metadataResponse) return metadataResponse;

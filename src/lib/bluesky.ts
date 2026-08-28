@@ -1,6 +1,7 @@
 import type { AppEnv } from "../types";
 import { getBskyDidForUser } from "./bsky-oauth";
 import { detectFacets } from "./facets";
+import { logError } from "./logger";
 
 /**
  * Bluesky 書き込み(ユーザー別 OAuth セッション経由)。
@@ -267,12 +268,13 @@ export async function getSessionForUser(
   if (!did) return null;
   try {
     const { getOAuthClient } = await import("./bsky-oauth");
-    const session = await getOAuthClient(env).restore(did);
+    const session = await (await getOAuthClient(env)).restore(did);
     return {
       did: session.did,
       fetchHandler: (pathname, init) => session.fetchHandler(pathname, init),
     };
-  } catch {
+  } catch (err) {
+    logError("bsky", "oauth session restore failed", err, { userId, did });
     return null;
   }
 }
