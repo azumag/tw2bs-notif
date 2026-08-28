@@ -27,36 +27,50 @@ import { SimpleStoreMemory } from "@atproto-labs/simple-store-memory";
 import type { Key } from "@atproto/jwk";
 import type { AppEnv } from "../types";
 import { decryptSecret, encryptSecret } from "./crypto";
+import { logError, logInfo } from "./logger";
 
 /**
  * Bluesky OAuth(ユーザー別)クライアント。
  * 細粒度スコープ(PoC 確認済み)で、status と feed.post の書き込み権限を発行する。
  * blob:image/* は embed.external の thumb(配信サムネイル)を uploadBlob するために
  * 必要(blob パーミッションは permission set に含められず、直接リクエストが必須)。
- * セッションは D1(暗号化)に永続化し、DPoP 鍵は JWK として保存・復元する。
+ *
+ * confidential client の ES256 署名鍵とユーザーセッションは、既存の
+ * ENCRYPTION_KEY で暗号化して D1 に永続化する。トークン更新は D1 の
+ * リースロックで DID ごとに直列化し、refresh token の二重使用を防ぐ。
  */
 
 export const BSKY_SCOPES =
   "atproto repo:app.bsky.actor.status repo:app.bsky.feed.post blob:image/*";
 
-const CLIENT_ID = "https://orbsky.bluemoon.works/oauth-client-metadata.json";
-const REDIRECT_URI = "https://orbsky.bluemoon.works/auth/bluesky/callback";
+const CLIENT_ORIGIN = "https://orbsky.bluemoon.works";
+const CLIENT_ID = `${CLIENT_ORIGIN}/oauth-client-metadata.json`;
+const REDIRECT_URI = `${CLIENT_ORIGIN}/auth/bluesky/callback`;
+export const BSKY_JWKS_PATH = "/oauth-jwks.json";
+const JWKS_URI = `${CLIENT_ORIGIN}${BSKY_JWKS_PATH}`;
 const OAUTH_STATE_PREFIX = "bsky_oauth_state:";
 const OAUTH_STATE_TTL = 10 * 60;
 const PLC_DIRECTORY_ORIGIN = "https://plc.directory";
 const PLC_RETRY_DELAYS_MS = [100, 250] as const;
+const CLIENT_KEY_NAME = "primary";
+const OAUTH_LOCK_TTL_MS = 45_000;
+const OAUTH_LOCK_WAIT_TIMEOUT_MS = 60_000;
+const OAUTH_LOCK_RETRY_MS = 25;
+const MAX_EVENT_REASON_LENGTH = 1_000;
 
 export const BSKY_CLIENT_METADATA: OAuthClientMetadataInput = {
   client_id: CLIENT_ID,
   application_type: "web",
   client_name: "orbsky",
-  client_uri: "https://orbsky.bluemoon.works",
-  policy_uri: "https://orbsky.bluemoon.works/privacy",
+  client_uri: CLIENT_ORIGIN,
+  policy_uri: `${CLIENT_ORIGIN}/privacy`,
   redirect_uris: [REDIRECT_URI],
   grant_types: ["authorization_code", "refresh_token"],
   response_types: ["code"],
   scope: BSKY_SCOPES,
-  token_endpoint_auth_method: "none",
+  token_endpoint_auth_method: "private_key_jwt",
+  token_endpoint_auth_signing_alg: "ES256",
+  jwks_uri: JWKS_URI,
   dpop_bound_access_tokens: true,
 };
 
@@ -312,23 +326,104 @@ const DIGEST_NAMES: Record<string, string> = {
   sha512: "SHA-512",
 };
 
-const runtimeImplementation: RuntimeImplementation = {
-  // extractable: true が必須(privateJwk で JWK 化して永続化するため)
-  createKey: (algs: string[]) =>
-    WebcryptoKey.generate(algs, crypto.randomUUID(), { extractable: true }),
-  getRandomValues: (length: number) => {
-    const bytes = new Uint8Array(length);
-    crypto.getRandomValues(bytes);
-    return bytes;
-  },
-  digest: async (bytes: Uint8Array, algorithm: { name: string }) =>
-    new Uint8Array(
-      await crypto.subtle.digest(
-        DIGEST_NAMES[algorithm.name] ?? algorithm.name,
-        bytes,
+type LockWait = (ms: number) => Promise<void>;
+
+export interface D1RequestLockOptions {
+  ttlMs?: number;
+  waitTimeoutMs?: number;
+  retryMs?: number;
+  now?: () => number;
+  wait?: LockWait;
+}
+
+function waitMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * OAuth SDK の requestLock 実装。
+ * refresh token はローテーションされ一度しか使えないため、同一 DID の
+ * restore/refresh を全 Worker isolate 間で直列化する。Worker が途中終了しても
+ * expires_at_ms 後に別の実行がリースを引き継げる。
+ */
+export function createD1RequestLock(
+  env: AppEnv,
+  options: D1RequestLockOptions = {},
+): NonNullable<RuntimeImplementation["requestLock"]> {
+  const ttlMs = options.ttlMs ?? OAUTH_LOCK_TTL_MS;
+  const waitTimeoutMs =
+    options.waitTimeoutMs ?? OAUTH_LOCK_WAIT_TIMEOUT_MS;
+  const retryMs = options.retryMs ?? OAUTH_LOCK_RETRY_MS;
+  const now = options.now ?? Date.now;
+  const wait = options.wait ?? waitMs;
+
+  const requestLock: NonNullable<RuntimeImplementation["requestLock"]> = async (
+    name,
+    fn,
+  ) => {
+    const ownerId = crypto.randomUUID();
+    const startedAt = now();
+
+    for (;;) {
+      const current = now();
+      const acquired = await env.DB.prepare(
+        `INSERT INTO bsky_oauth_locks (lock_name, owner_id, expires_at_ms)
+         VALUES (?, ?, ?)
+         ON CONFLICT (lock_name) DO UPDATE SET
+           owner_id = excluded.owner_id,
+           expires_at_ms = excluded.expires_at_ms
+         WHERE bsky_oauth_locks.expires_at_ms <= ?`,
+      )
+        .bind(name, ownerId, current + ttlMs, current)
+        .run();
+
+      if (acquired.meta.changes > 0) break;
+      if (current - startedAt >= waitTimeoutMs) {
+        throw new Error(`Timed out acquiring Bluesky OAuth lock: ${name}`);
+      }
+      await wait(retryMs + Math.floor(Math.random() * retryMs));
+    }
+
+    try {
+      return await fn();
+    } finally {
+      try {
+        await env.DB.prepare(
+          `DELETE FROM bsky_oauth_locks
+           WHERE lock_name = ? AND owner_id = ?`,
+        )
+          .bind(name, ownerId)
+          .run();
+      } catch (err) {
+        // リース期限で必ず回復するため、解放失敗で本来の OAuth 結果を潰さない。
+        logError("bsky", "oauth lock release failed", err, { name });
+      }
+    }
+  };
+
+  return requestLock;
+}
+
+function createRuntimeImplementation(env: AppEnv): RuntimeImplementation {
+  return {
+    // extractable: true が必須(privateJwk で JWK 化して永続化するため)
+    createKey: (algs: string[]) =>
+      WebcryptoKey.generate(algs, crypto.randomUUID(), { extractable: true }),
+    getRandomValues: (length: number) => {
+      const bytes = new Uint8Array(length);
+      crypto.getRandomValues(bytes);
+      return bytes;
+    },
+    digest: async (bytes: Uint8Array, algorithm: { name: string }) =>
+      new Uint8Array(
+        await crypto.subtle.digest(
+          DIGEST_NAMES[algorithm.name] ?? algorithm.name,
+          bytes,
+        ),
       ),
-    ),
-};
+    requestLock: createD1RequestLock(env),
+  };
+}
 
 /**
  * ストアの値を JWK 化して永続化するラッパー(NodeOAuthClient の toDpopKeyStore と同等)。
@@ -395,8 +490,8 @@ export function createD1SessionStore(env: AppEnv): SessionStore {
     async set(did, value) {
       const enc = await encryptSecret(env, JSON.stringify(value));
       await env.DB.prepare(
-        `INSERT INTO bsky_sessions (did, twitch_user_id, session_json_enc)
-         VALUES (?, '', ?)
+        `INSERT INTO bsky_sessions (did, session_json_enc)
+         VALUES (?, ?)
          ON CONFLICT (did) DO UPDATE SET
            session_json_enc = excluded.session_json_enc,
            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
@@ -412,25 +507,170 @@ export function createD1SessionStore(env: AppEnv): SessionStore {
   }) as unknown as SessionStore;
 }
 
-let client: OAuthClient | undefined;
+interface ClientKeyRow {
+  enc: string;
+}
 
-export function getOAuthClient(env: AppEnv): OAuthClient {
-  if (client) return client;
+async function importClientSigningKey(serializedJwk: string): Promise<Key> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serializedJwk);
+  } catch (cause) {
+    throw new Error("Stored Bluesky OAuth client JWK is invalid JSON", {
+      cause,
+    });
+  }
+  const key = await WebcryptoKey.fromJWK(parsed as never);
+  if (!key.privateJwk) {
+    throw new Error("Stored Bluesky OAuth client JWK is not private");
+  }
+  if (!key.kid) {
+    throw new Error("Stored Bluesky OAuth client JWK has no kid");
+  }
+  if (key.alg !== "ES256") {
+    throw new Error("Stored Bluesky OAuth client JWK must use ES256");
+  }
+  if (!key.publicJwk) {
+    throw new Error("Stored Bluesky OAuth client JWK has no public key");
+  }
+  return key;
+}
+
+/**
+ * confidential client の署名鍵を取得する。未作成なら ES256 鍵を生成し、
+ * 秘密 JWK を暗号化して D1 に一度だけ保存する。並行初期化時は INSERT OR IGNORE
+ * で勝者を一つに絞り、全 isolate が同じ保存済み鍵を読み直す。
+ */
+async function getOrCreateClientSigningKey(env: AppEnv): Promise<Key> {
+  const existing = await env.DB.prepare(
+    `SELECT private_jwk_enc AS enc
+     FROM bsky_oauth_client_keys WHERE key_name = ?`,
+  )
+    .bind(CLIENT_KEY_NAME)
+    .first<ClientKeyRow>();
+  if (existing) {
+    return importClientSigningKey(await decryptSecret(env, existing.enc));
+  }
+
+  const generated = await WebcryptoKey.generate(
+    ["ES256"],
+    crypto.randomUUID(),
+    { extractable: true },
+  );
+  const privateJwk = generated.privateJwk;
+  if (!privateJwk || !generated.publicJwk) {
+    throw new Error("Failed to generate Bluesky OAuth client signing key");
+  }
+  const enc = await encryptSecret(env, JSON.stringify(privateJwk));
+  await env.DB.prepare(
+    `INSERT OR IGNORE INTO bsky_oauth_client_keys
+       (key_name, private_jwk_enc)
+     VALUES (?, ?)`,
+  )
+    .bind(CLIENT_KEY_NAME, enc)
+    .run();
+
+  const stored = await env.DB.prepare(
+    `SELECT private_jwk_enc AS enc
+     FROM bsky_oauth_client_keys WHERE key_name = ?`,
+  )
+    .bind(CLIENT_KEY_NAME)
+    .first<ClientKeyRow>();
+  if (!stored) {
+    throw new Error("Failed to persist Bluesky OAuth client signing key");
+  }
+  return importClientSigningKey(await decryptSecret(env, stored.enc));
+}
+
+/** 認可サーバーへ公開する client authentication 用 JWKS。秘密値は含めない。 */
+export async function getBskyPublicJwks(env: AppEnv) {
+  const key = await getOrCreateClientSigningKey(env);
+  const publicJwk = key.publicJwk;
+  if (!publicJwk) {
+    throw new Error("Bluesky OAuth client public JWK is missing");
+  }
+  return { keys: [publicJwk] };
+}
+
+function summarizeCause(cause: unknown): string | null {
+  if (cause == null) return null;
+  const summary =
+    cause instanceof Error
+      ? `${cause.name}: ${cause.message}`
+      : String(cause);
+  return summary.slice(0, MAX_EVENT_REASON_LENGTH);
+}
+
+function sessionDeletionEventType(cause: unknown): string {
+  const name = cause instanceof Error ? cause.name : "";
+  if (name.includes("Revoked")) return "revoked";
+  if (name.includes("Refresh") || name.includes("Invalid")) {
+    return "reauth_required";
+  }
+  return "deleted";
+}
+
+async function recordSessionDeletion(
+  env: AppEnv,
+  did: string,
+  cause: unknown,
+): Promise<void> {
+  const eventType = sessionDeletionEventType(cause);
+  const reason = summarizeCause(cause);
+  try {
+    await env.DB.batch([
+      env.DB.prepare(
+        `INSERT INTO bsky_oauth_events (did, event_type, reason)
+         VALUES (?, ?, ?)`,
+      ).bind(did, eventType, reason),
+      env.DB.prepare(
+        `UPDATE bsky_connections
+         SET status = 'reauth_required',
+             reason = ?,
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+         WHERE did = ?`,
+      ).bind(reason ?? "Blueskyの再認証が必要です。", did),
+    ]);
+  } catch (err) {
+    logError("bsky", "oauth session deletion audit failed", err, { did });
+  }
+
+  if (eventType === "revoked") {
+    logInfo("bsky", "oauth session revoked", { did, reason });
+  } else {
+    logError("bsky", "oauth session deleted", cause, { did, eventType });
+  }
+}
+
+let clientCache: { kid: string; client: OAuthClient } | undefined;
+
+export async function getOAuthClient(env: AppEnv): Promise<OAuthClient> {
+  const signingKey = await getOrCreateClientSigningKey(env);
+  if (!signingKey.kid) {
+    throw new Error("Bluesky OAuth client signing key has no kid");
+  }
+  if (clientCache?.kid === signingKey.kid) return clientCache.client;
+
   const oauthFetch = createOAuthFetch();
-  client = new OAuthClient({
+  const client = new OAuthClient({
     responseMode: "query",
     clientMetadata: BSKY_CLIENT_METADATA,
+    keyset: [signingKey],
     handleResolver: createHandleResolver(),
     didResolver: createWorkersDidResolver(oauthFetch),
     fetch: oauthFetch,
-    runtimeImplementation,
+    runtimeImplementation: createRuntimeImplementation(env),
     stateStore: createKvStateStore(env),
     sessionStore: createD1SessionStore(env),
+    onSessionDeleted: async (did, cause) => {
+      await recordSessionDeletion(env, did, cause);
+    },
     // 一時キャッシュ(isolate 内のみ。失効してもリトライで回復する)
     authorizationServerMetadataCache: new SimpleStoreMemory({ max: 100 }),
     protectedResourceMetadataCache: new SimpleStoreMemory({ max: 100 }),
     dpopNonceCache: new SimpleStoreMemory({ max: 100, ttl: 60e3 }),
   });
+  clientCache = { kid: signingKey.kid, client };
   return client;
 }
 
@@ -443,7 +683,7 @@ export function getOAuthClient(env: AppEnv): OAuthClient {
 export async function createBskyAuthorizeUrl(
   env: AppEnv,
 ): Promise<URL> {
-  return getOAuthClient(env).authorize("https://bsky.social", {
+  return (await getOAuthClient(env)).authorize("https://bsky.social", {
     scope: BSKY_SCOPES,
     prompt: "select_account",
   });
@@ -454,7 +694,7 @@ export async function completeBskyAuthorization(
   env: AppEnv,
   params: URLSearchParams,
 ): Promise<{ did: string }> {
-  const { session } = await getOAuthClient(env).callback(params);
+  const { session } = await (await getOAuthClient(env)).callback(params);
   return { did: session.did };
 }
 
@@ -464,38 +704,77 @@ export async function bindBskySessionToUser(
   userId: string,
   did: string,
 ): Promise<void> {
-  await env.DB.prepare(
-    `UPDATE bsky_sessions SET twitch_user_id = ?
-     WHERE did = ?`,
-  )
-    .bind(userId, did)
-    .run();
+  // 同じユーザーの旧DID、同じDIDに残った旧ユーザーの紐付けを外してから、
+  // 現在の認可結果を唯一の有効な接続として保存する。
+  await env.DB.batch([
+    env.DB.prepare(
+      `DELETE FROM bsky_connections
+       WHERE twitch_user_id = ? OR did = ?`,
+    ).bind(userId, did),
+    env.DB.prepare(
+      `INSERT INTO bsky_connections
+         (twitch_user_id, did, status, reason, updated_at)
+       VALUES (?, ?, 'active', NULL, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`,
+    ).bind(userId, did),
+  ]);
 }
 
-/** ユーザーが Bluesky 連携済みか */
+export type BskyConnectionStatus = "active" | "reauth_required";
+
+export interface BskyConnection {
+  did: string;
+  status: BskyConnectionStatus;
+  reason: string | null;
+}
+
+/** UI・解除処理用に、再認証待ちを含む保存済みの紐付けを返す。 */
+export async function getBskyConnectionForUser(
+  env: AppEnv,
+  userId: string,
+): Promise<BskyConnection | null> {
+  const row = await env.DB.prepare(
+    `SELECT did, status, reason
+     FROM bsky_connections WHERE twitch_user_id = ?`,
+  )
+    .bind(userId)
+    .first<BskyConnection>();
+  return row ?? null;
+}
+
+/** 自動処理に利用できる、有効な Bluesky DID を返す。 */
 export async function getBskyDidForUser(
   env: AppEnv,
   userId: string,
 ): Promise<string | null> {
   const row = await env.DB.prepare(
-    "SELECT did FROM bsky_sessions WHERE twitch_user_id = ?",
+    `SELECT c.did
+     FROM bsky_connections c
+     JOIN bsky_sessions s ON s.did = c.did
+     WHERE c.twitch_user_id = ? AND c.status = 'active'`,
   )
     .bind(userId)
     .first<{ did: string }>();
   return row?.did ?? null;
 }
 
-/** Bluesky 連携を解除する(セッション削除 + リボーク) */
+/** Bluesky 連携を解除する(セッション削除 + リボーク + 紐付け削除) */
 export async function disconnectBsky(
   env: AppEnv,
   userId: string,
 ): Promise<void> {
-  const did = await getBskyDidForUser(env, userId);
-  if (!did) return;
+  const connection = await getBskyConnectionForUser(env, userId);
+  if (!connection) return;
   try {
-    await getOAuthClient(env).revoke(did);
+    await (await getOAuthClient(env)).revoke(connection.did);
   } catch {
     // リボーク失敗は無視(ローカル削除は行う)
   }
-  await env.DB.prepare("DELETE FROM bsky_sessions WHERE did = ?").bind(did).run();
+  await env.DB.batch([
+    env.DB.prepare(
+      "DELETE FROM bsky_connections WHERE twitch_user_id = ?",
+    ).bind(userId),
+    env.DB.prepare("DELETE FROM bsky_sessions WHERE did = ?").bind(
+      connection.did,
+    ),
+  ]);
 }
