@@ -1,6 +1,7 @@
 import type { AppEnv } from "../types";
 import { getBskyDidForUser } from "./bsky-oauth";
 import { detectFacets } from "./facets";
+import { logError } from "./logger";
 
 /**
  * Bluesky 書き込み(ユーザー別 OAuth セッション経由)。
@@ -257,7 +258,7 @@ export async function createStreamPost(
 
 /**
  * Twitch ユーザーの Bluesky セッションを復元する。
- * 未連携なら null。
+ * 未連携または再認証が必要なら null。
  */
 export async function getSessionForUser(
   env: AppEnv,
@@ -267,12 +268,13 @@ export async function getSessionForUser(
   if (!did) return null;
   try {
     const { getOAuthClient } = await import("./bsky-oauth");
-    const session = await getOAuthClient(env).restore(did);
+    const session = await (await getOAuthClient(env)).restore(did);
     return {
       did: session.did,
       fetchHandler: (pathname, init) => session.fetchHandler(pathname, init),
     };
-  } catch {
+  } catch (err) {
+    logError("bsky", "oauth session restore failed", err, { userId, did });
     return null;
   }
 }
