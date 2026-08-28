@@ -108,6 +108,31 @@ describe("confidential client metadata と JWKS", () => {
 });
 
 
+describe("OAuth移行スキーマの後方互換性", () => {
+  it("migration先行中も旧Worker形式で保存でき、新WorkerのNULL紐付けも複数保存できる", async () => {
+    const env0 = makeEnv();
+    await env0.DB.prepare(
+      `INSERT INTO bsky_sessions (did, twitch_user_id, session_json_enc)
+       VALUES ('did:plc:legacy', '', 'legacy-enc')`,
+    ).run();
+    await env0.DB.prepare(
+      `INSERT INTO bsky_sessions (did, session_json_enc) VALUES
+         ('did:plc:new-1', 'new-enc-1'),
+         ('did:plc:new-2', 'new-enc-2')`,
+    ).run();
+
+    const rows = await env0.DB.prepare(
+      `SELECT did, twitch_user_id AS twitchUserId
+       FROM bsky_sessions ORDER BY did`,
+    ).all<{ did: string; twitchUserId: string | null }>();
+    expect(rows.results).toEqual([
+      { did: "did:plc:legacy", twitchUserId: "" },
+      { did: "did:plc:new-1", twitchUserId: null },
+      { did: "did:plc:new-2", twitchUserId: null },
+    ]);
+  });
+});
+
 describe("Bluesky 接続状態", () => {
   it("旧セッションの紐付けを再認証待ちとして保持し、再連携で有効化できる", async () => {
     const env0 = makeEnv();
