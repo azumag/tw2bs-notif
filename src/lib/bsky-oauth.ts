@@ -677,7 +677,10 @@ export async function getOAuthClient(env: AppEnv): Promise<OAuthClient> {
 /**
  * Bluesky 認可 URL を生成する。
  * PDS URL 起点で開始するため、Bluesky 側の認可画面でログイン/アカウント選択ができる
- * (ハンドル入力を省略し、prompt=select_account で既存セッションのアカウント選択を促す)。
+ * (ハンドル入力を省略。prompt 未指定でも、認可画面は既存セッションがあればアカウント一覧、
+ * 無ければログインフォームを表示する)。
+ * prompt=select_account は指定しない: 認可サーバーはそのブラウザに既存セッションが無いと
+ * 画面を出さずに account_selection_required を返すため、初めて連携する利用者が必ず失敗する。
  * 他の PDS ユーザーへの対応は将来(入力欄で PDS URL を受け付ける等)。
  */
 export async function createBskyAuthorizeUrl(
@@ -685,7 +688,6 @@ export async function createBskyAuthorizeUrl(
 ): Promise<URL> {
   return (await getOAuthClient(env)).authorize("https://bsky.social", {
     scope: BSKY_SCOPES,
-    prompt: "select_account",
   });
 }
 
