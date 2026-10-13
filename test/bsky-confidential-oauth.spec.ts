@@ -5,7 +5,7 @@ import {
   waitOnExecutionContext,
   type D1Migration,
 } from "cloudflare:test";
-import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { WebcryptoKey } from "@atproto/jwk-webcrypto";
 import worker from "../src/worker";
 import type { AppEnv } from "../src/types";
@@ -15,6 +15,7 @@ import {
   BSKY_JWKS_PATH,
   bindBskySessionToUser,
   createD1RequestLock,
+  createBskyAuthorizeUrl,
   createD1SessionStore,
   getBskyConnectionForUser,
   getBskyDidForUser,
@@ -248,5 +249,60 @@ describe("D1 OAuth request lock", () => {
       "SELECT owner_id FROM bsky_oauth_locks WHERE lock_name = 'expired'",
     ).first();
     expect(row).toBeNull();
+  });
+});
+
+describe("Bluesky 認可開始", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("prompt=select_account を送らない(認可画面未ログインのブラウザで即エラーになるため)", async () => {
+    const parBodies: URLSearchParams[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const request = new Request(input, init);
+        const url = new URL(request.url);
+        if (url.pathname === "/.well-known/oauth-protected-resource") {
+          return new Response("Cannot GET", { status: 404 });
+        }
+        if (url.pathname === "/.well-known/oauth-authorization-server") {
+          return Response.json({
+            issuer: "https://bsky.social",
+            scopes_supported: ["atproto", "transition:generic"],
+            response_types_supported: ["code"],
+            grant_types_supported: ["authorization_code", "refresh_token"],
+            code_challenge_methods_supported: ["S256"],
+            authorization_response_iss_parameter_supported: true,
+            authorization_endpoint: "https://bsky.social/oauth/authorize",
+            token_endpoint: "https://bsky.social/oauth/token",
+            token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
+            token_endpoint_auth_signing_alg_values_supported: ["ES256"],
+            pushed_authorization_request_endpoint: "https://bsky.social/oauth/par",
+            require_pushed_authorization_requests: true,
+            dpop_signing_alg_values_supported: ["ES256"],
+            client_id_metadata_document_supported: true,
+            prompt_values_supported: ["none", "login", "consent", "select_account", "create"],
+          });
+        }
+        if (url.pathname === "/oauth/par") {
+          parBodies.push(new URLSearchParams(await request.text()));
+          return Response.json(
+            { request_uri: "urn:ietf:params:oauth:request_uri:test", expires_in: 299 },
+            { status: 201 },
+          );
+        }
+        return new Response("unexpected", { status: 500 });
+      }),
+    );
+    // 別テストでキャッシュされた(スタブ前の fetch を持つ)クライアントを使わせない
+    await env.DB.prepare("DELETE FROM bsky_oauth_client_keys").run();
+
+    const authUrl = await createBskyAuthorizeUrl(makeEnv());
+
+    expect(authUrl.origin + authUrl.pathname).toBe("https://bsky.social/oauth/authorize");
+    expect(parBodies).toHaveLength(1);
+    expect(parBodies[0].get("prompt")).toBeNull();
   });
 });
