@@ -25,14 +25,26 @@ Twitch 配信開始を EventSub で検知し、Bluesky の streaming status(`app
 
 ## 開発
 
+Node.js は `.node-version` の **22.23.4** を使用する。GitHub Actions と
+Workers Builds もこのファイルを参照する。Workers Builds に `NODE_VERSION` の
+明示設定がある場合も、同じ版へ揃える。
+Cloudflare Workers 本番は Node.js ではなく Workers ランタイムで動く。
+
 ```bash
-npm install
+npm ci
 npm run dev        # wrangler dev(.dev.vars からシークレット)
 npm run typecheck  # tsc --noEmit
 npm test           # vitest(Workers ランタイム上で実行)
+npm audit --audit-level=high
+npm audit --prefix poc/bsky-oauth --package-lock-only --ignore-scripts --audit-level=high
 ```
 
 テストは `test/migrations.ts` で D1 スキーマを適用して実行する。
+
+Workers テスト用の `@cloudflare/vitest-pool-workers` が固定する Miniflare には、
+`sharp` と `undici` のセキュリティ修正版を限定的に override している。
+pool の更新時は、この override が不要になったかを監査と Workers テストで確認する。
+独立した `poc/bsky-oauth/package-lock.json` も CI の依存監査対象とする。
 
 ## デプロイ・運用
 

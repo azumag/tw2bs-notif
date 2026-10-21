@@ -143,6 +143,9 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  // 未指定の通信も実際の Twitch API に到達させない。
+  // 通信が必要なケースは各テストで mockFetch のルートを指定する。
+  mockFetch({});
   await env.DB.prepare("DELETE FROM live_streams").run();
   await env.DB.prepare("DELETE FROM connections").run();
   await env.DB.prepare("DELETE FROM users").run();

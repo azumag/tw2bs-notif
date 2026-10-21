@@ -17,8 +17,8 @@
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.20.3",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.10",
-    "wrangler": "^4.120.0"
+    "vitest": "^4.1.12",
+    "wrangler": "^4.151.3"
   },
   "dependencies": {
     "@atproto-labs/did-resolver": "^0.3.7",
@@ -26,5 +26,11 @@
     "@atproto/did": "^0.5.4",
     "@atproto/jwk-webcrypto": "^0.3.4",
     "@atproto/oauth-client": "^0.8.3"
+  },
+  "overrides": {
+    "miniflare@5.20260801.1-alpha": {
+      "sharp": "0.35.5",
+      "undici": "7.29.1"
+    }
   }
 }
